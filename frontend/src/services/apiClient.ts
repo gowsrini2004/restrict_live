@@ -1,11 +1,9 @@
 import axios, { AxiosError } from 'axios';
 
-// Dynamically resolve API host from the current browser hostname.
-// This means when a phone connects via 192.168.1.3:5173, API calls also
-// go to 192.168.1.3:8000 / :8001 instead of 'localhost' (unreachable from phones).
-const host = window.location.hostname; // e.g. 'localhost' or '192.168.1.3'
-const API_BASE_URL        = import.meta.env.VITE_API_BASE_URL        || `http://${host}:8000/api/v1`;
-const STREAM_API_BASE_URL = import.meta.env.VITE_STREAM_API_BASE_URL || `http://${host}:8001/api/v1`;
+// Base API URLs: default to relative path '/api/v1' so Vite proxy routes
+// frontend, local Wi-Fi, and ngrok URLs cleanly without cross-origin port issues.
+const API_BASE_URL        = import.meta.env.VITE_API_BASE_URL        || '/api/v1';
+const STREAM_API_BASE_URL = import.meta.env.VITE_STREAM_API_BASE_URL || '/api/v1';
 
 export interface ApiErrorResponse {
   success: false;

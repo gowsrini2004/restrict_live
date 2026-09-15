@@ -11,8 +11,8 @@ RUN pip install --no-cache-dir -r requirements.txt gunicorn gevent
 COPY services/ /app/services/
 
 WORKDIR /app/services/auth_service
+RUN chmod +x entrypoint.sh
 
 EXPOSE 8000
 
-# Production WSGI server with gunicorn gevent workers tuned for high concurrency (1000+ users)
-CMD ["gunicorn", "--workers", "4", "--worker-class", "gevent", "--worker-connections", "1000", "--bind", "0.0.0.0:8000", "auth_service.wsgi:application"]
+ENTRYPOINT ["./entrypoint.sh"]

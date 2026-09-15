@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize2,
-  ShieldAlert, Radio, Clock,
+  ShieldAlert, Radio, Clock, Settings, Check, Sparkles,
 } from 'lucide-react';
 
 interface ProtectedPlayerProps {
@@ -12,6 +12,16 @@ interface ProtectedPlayerProps {
   offlineMessage?: string;
 }
 
+const QUALITIES = [
+  { label: 'Auto (Best Quality)', value: 'auto', badge: 'AUTO' },
+  { label: '4K Ultra HD (2160p)', value: 'highres', badge: '4K' },
+  { label: '1440p Quad HD',       value: 'hd1440',  badge: '2K' },
+  { label: '1080p Full HD',      value: 'hd1080',  badge: 'FHD' },
+  { label: '720p HD',            value: 'hd720',   badge: 'HD' },
+  { label: '480p Standard',      value: 'large',   badge: '480p' },
+  { label: '360p Low Data',      value: 'medium',  badge: '360p' },
+];
+
 export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
   videoId,
   title = 'International Retreat 2026 — Live Stream',
@@ -19,13 +29,16 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
   offlineImageUrl = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=1200&q=80',
   offlineMessage  = 'The live broadcast is currently offline. Please stay tuned for the next session.',
 }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const iframeRef    = useRef<HTMLIFrameElement>(null);
+  const containerRef  = useRef<HTMLDivElement>(null);
+  const iframeRef     = useRef<HTMLIFrameElement>(null);
+  const qualityMenuRef = useRef<HTMLDivElement>(null);
 
-  const [isPlaying,    setIsPlaying]    = useState(true);
-  const [isMuted,      setIsMuted]      = useState(false);
-  const [volume,       setVolume]       = useState(80);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isPlaying,       setIsPlaying]       = useState(true);
+  const [isMuted,         setIsMuted]         = useState(false);
+  const [volume,          setVolume]          = useState(80);
+  const [isFullscreen,    setIsFullscreen]    = useState(false);
+  const [selectedQuality, setSelectedQuality] = useState<string>('auto');
+  const [showQualityMenu, setShowQualityMenu] = useState<boolean>(false);
 
   useEffect(() => {
     const onChange = () => {
@@ -46,6 +59,19 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
       document.removeEventListener('webkitfullscreenchange', onChange);
     };
   }, []);
+
+  /* Close quality menu when clicking outside */
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (qualityMenuRef.current && !qualityMenuRef.current.contains(e.target as Node)) {
+        setShowQualityMenu(false);
+      }
+    };
+    if (showQualityMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showQualityMenu]);
 
   /* Compute the amber-filled gradient for the slider track */
   const sliderTrackStyle = useCallback((val: number): React.CSSProperties => {
@@ -76,6 +102,20 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
     setVolume(v);
     if (v === 0) { ytCmd('mute');   setIsMuted(true);  }
     else         { ytCmd('unMute'); ytCmd('setVolume', [v]); setIsMuted(false); }
+  };
+
+  const [qualityToast, setQualityToast] = useState<string | null>(null);
+
+  const handleQualitySelect = (val: string) => {
+    setSelectedQuality(val);
+    setShowQualityMenu(false);
+
+    const targetObj = QUALITIES.find((q) => q.value === val) || QUALITIES[0];
+    setQualityToast(`Quality Set: ${targetObj.label}`);
+    setTimeout(() => setQualityToast(null), 3000);
+
+    ytCmd('setPlaybackQuality', [val]);
+    ytCmd('setPlaybackQualityRange', [val, val]);
   };
 
   const toggleFullscreen = async () => {
@@ -113,7 +153,8 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
     }
   };
 
-  const embedUrl = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&controls=0&modestbranding=1&rel=0&autoplay=1&origin=${encodeURIComponent(window.location.origin)}`;
+  const embedUrl = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&controls=0&modestbranding=1&rel=0&autoplay=1&vq=${selectedQuality}&origin=${encodeURIComponent(window.location.origin)}`;
+  const activeQualityObj = QUALITIES.find((q) => q.value === selectedQuality) || QUALITIES[0];
 
   return (
     <div
@@ -143,7 +184,52 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
                 <Radio className="w-3 h-3" /> LIVE
               </span>
 
+              {/* Quality Change Confirmation Toast */}
+              {qualityToast && (
+                <div className="bg-slate-900/95 border border-amber-500/40 text-amber-400 font-extrabold text-xs px-3.5 py-1.5 rounded-full shadow-2xl backdrop-blur-xl flex items-center gap-1.5 animate-fadeIn">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>{qualityToast}</span>
+                </div>
+              )}
+
               <div className="flex items-center gap-2">
+                {/* Stream Quality Selector in Top Overlay for Fullscreen */}
+                {isFullscreen && (
+                  <div className="relative" ref={qualityMenuRef}>
+                    <button
+                      onClick={() => setShowQualityMenu(!showQualityMenu)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-900/80 hover:bg-slate-800 text-white text-xs font-bold border border-white/20 backdrop-blur transition-all active:scale-95"
+                    >
+                      <Settings className="w-3.5 h-3.5 text-amber-400" />
+                      <span className="text-amber-400 font-black text-[11px] uppercase">{activeQualityObj.badge}</span>
+                    </button>
+
+                    {/* Quality Popup Menu */}
+                    {showQualityMenu && (
+                      <div className="absolute right-0 top-10 w-52 bg-slate-900/95 border border-white/15 rounded-2xl p-2 shadow-2xl backdrop-blur-xl z-50 space-y-1 animate-fadeIn">
+                        <div className="px-2.5 py-1.5 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider border-b border-white/10 flex items-center justify-between">
+                          <span>Stream Quality</span>
+                          <Sparkles className="w-3 h-3 text-amber-400" />
+                        </div>
+                        {QUALITIES.map((q) => (
+                          <button
+                            key={q.value}
+                            onClick={() => handleQualitySelect(q.value)}
+                            className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                              selectedQuality === q.value
+                                ? 'bg-amber-500/20 text-amber-400 font-bold border border-amber-500/30'
+                                : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                            }`}
+                          >
+                            <span>{q.label}</span>
+                            {selectedQuality === q.value && <Check className="w-3.5 h-3.5 text-amber-400" />}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {isFullscreen && (
                   <button
                     onClick={toggleFullscreen}
@@ -152,9 +238,12 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
                     <Minimize2 className="w-3.5 h-3.5" /> Exit Fullscreen
                   </button>
                 )}
-                <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-black/50 px-2.5 py-1 rounded-full border border-amber-500/25 backdrop-blur">
-                  <ShieldAlert className="w-3 h-3" /> Protected
-                </span>
+
+                {!isFullscreen && (
+                  <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-black/50 px-2.5 py-1 rounded-full border border-amber-500/25 backdrop-blur">
+                    <ShieldAlert className="w-3 h-3" /> Protected
+                  </span>
+                )}
               </div>
             </div>
 
@@ -244,17 +333,57 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
             </span>
           </div>
 
-          {/* Right group: Fullscreen button */}
-          <button
-            onClick={toggleFullscreen}
-            className="w-9 h-9 rounded-xl flex items-center justify-center bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-white/10 transition-all shrink-0"
-            title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-          >
-            {isFullscreen
-              ? <Minimize2 className="w-4 h-4 text-amber-400" />
-              : <Maximize  className="w-4 h-4" />
-            }
-          </button>
+          {/* Right group: Stream Quality Selector & Fullscreen */}
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Quality Selector Dropdown Button */}
+            <div className="relative" ref={qualityMenuRef}>
+              <button
+                onClick={() => setShowQualityMenu(!showQualityMenu)}
+                className="h-9 px-3 rounded-xl flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-white/10 transition-all shrink-0 text-xs font-semibold"
+                title="Stream Quality"
+              >
+                <Settings className="w-3.5 h-3.5 text-amber-400" />
+                <span className="text-amber-400 font-extrabold text-[11px] uppercase">{activeQualityObj.badge}</span>
+              </button>
+
+              {/* Quality Popup Menu */}
+              {showQualityMenu && (
+                <div className="absolute right-0 bottom-12 w-52 bg-slate-900/95 border border-white/15 rounded-2xl p-2 shadow-2xl backdrop-blur-xl z-50 space-y-1 animate-fadeIn">
+                  <div className="px-2.5 py-1.5 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider border-b border-white/10 flex items-center justify-between">
+                    <span>Select Quality</span>
+                    <Sparkles className="w-3 h-3 text-amber-400" />
+                  </div>
+                  {QUALITIES.map((q) => (
+                    <button
+                      key={q.value}
+                      onClick={() => handleQualitySelect(q.value)}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                        selectedQuality === q.value
+                          ? 'bg-amber-500/20 text-amber-400 font-bold border border-amber-500/30'
+                          : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                      }`}
+                    >
+                      <span>{q.label}</span>
+                      {selectedQuality === q.value && <Check className="w-3.5 h-3.5 text-amber-400" />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Fullscreen */}
+            <button
+              onClick={toggleFullscreen}
+              className="w-9 h-9 rounded-xl flex items-center justify-center bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-white/10 transition-all shrink-0"
+              title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+            >
+              {isFullscreen
+                ? <Minimize2 className="w-4 h-4 text-amber-400" />
+                : <Maximize  className="w-4 h-4" />
+              }
+            </button>
+          </div>
+
         </div>
       )}
     </div>
