@@ -1,0 +1,9 @@
+{
+  "name": "live-stream-microservices",
+  "version": "1.0.0",
+  "description": "Production-Grade YouTube Live Streaming & Q&A Microservices Platform",
+  "scripts": {
+    "start": "powershell -ExecutionPolicy Bypass -File ./start.ps1",
+    "stop": "docker-compose down"
+  }
+}
