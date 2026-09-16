@@ -74,6 +74,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      auth_service:
+        condition: service_started
 
   gateway:
     image: nginx:alpine

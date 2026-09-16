@@ -2,7 +2,7 @@
 set -e
 
 echo "Running stream service migrations..."
-python manage.py migrate --noinput
+python manage.py migrate --fake-initial --noinput
 
 echo "Seeding default stream configuration..."
 python manage.py shell -c "

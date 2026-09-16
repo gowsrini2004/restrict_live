@@ -6,10 +6,12 @@ python manage.py migrate --noinput
 
 echo "Seeding default Super Admin and passcodes..."
 python manage.py shell -c "
-from users.models import User, SystemConfig
-User.objects.get_or_create(email='events@chennaimath.org', defaults={'role':'SUPER_ADMIN','is_active':True})
-SystemConfig.objects.get_or_create(key='common_admin_passcode', defaults={'value':'ADMIN2026'})
-SystemConfig.objects.get_or_create(key='attendee_passcode', defaults={'value':'IRK2026'})
+from users.models import AuthorizedUser, SystemConfig
+AuthorizedUser.objects.get_or_create(email='events@chennaimath.org', defaults={'is_admin': True, 'is_super_admin': True, 'is_active': True})
+AuthorizedUser.objects.get_or_create(email='admin@chennaimath.org', defaults={'is_admin': True, 'is_super_admin': False, 'is_active': True})
+AuthorizedUser.objects.get_or_create(email='attendee@example.com', defaults={'is_admin': False, 'is_super_admin': False, 'is_active': True})
+SystemConfig.objects.get_or_create(key='ADMIN_PASSCODE', defaults={'value': 'ADMIN2026'})
+SystemConfig.objects.get_or_create(key='COMMON_PASSCODE', defaults={'value': 'IRK2026'})
 "
 
 echo "Starting Auth Service Gunicorn..."

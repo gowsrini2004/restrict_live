@@ -15,4 +15,4 @@ RUN chmod +x entrypoint.sh
 
 EXPOSE 8001
 
-ENTRYPOINT ["./entrypoint.sh"]
+ENTRYPOINT ["/bin/sh", "./entrypoint.sh"]
