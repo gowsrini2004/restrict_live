@@ -823,17 +823,23 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
       {isLive && !isFullscreen && (
         <div className="bg-slate-950 border-t border-white/10 px-2 sm:px-4 py-2 sm:py-2.5 space-y-1.5 sm:space-y-2 shrink-0">
 
-          {/* Bold, standalone call-to-action — deliberately its own row,
-              not a small chip buried in the button group, since it's
-              telling viewers something worth acting on: this stream
-              actually goes up to 4K, and reaching that (or any quality
-              choice at all) requires fullscreen — see the click-catcher
-              comment in the video area above for why. */}
-          <div className="flex items-center justify-center gap-1.5 sm:gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-2.5 sm:px-3 py-1.5 sm:py-2">
-            <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
-            <p className="text-[11px] sm:text-xs font-bold text-amber-400 text-center leading-snug">
-              Streaming in up to 4K Ultra HD — go Fullscreen <Maximize className="inline w-3 h-3 -mt-0.5" /> and pick the highest Quality in Settings <Settings2 className="inline w-3 h-3 -mt-0.5" /> for the clearest picture
-            </p>
+          {/* Bold, standalone call-to-action — its own row, not a chip
+              buried in the button group. A product-badge treatment (bold
+              "4K" chip + two-line copy) reads far more like a real feature
+              callout than one long sentence with icons crammed mid-text. */}
+          <div className="flex items-center gap-2.5 sm:gap-3 bg-gradient-to-r from-amber-500/15 via-amber-500/5 to-transparent border border-amber-500/30 rounded-xl px-3 py-2 shadow-lg shadow-amber-500/5">
+            <div className="flex items-center gap-1 bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950 font-black text-[11px] sm:text-sm px-2.5 py-1.5 rounded-lg shrink-0 shadow-md shadow-amber-500/30">
+              <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              4K
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] sm:text-xs font-bold text-amber-300 leading-tight">
+                This stream supports up to 4K Ultra HD
+              </p>
+              <p className="text-[10px] sm:text-[11px] text-amber-400/70 leading-tight flex items-center gap-1 flex-wrap mt-0.5">
+                Tap <Maximize className="w-3 h-3 shrink-0" /> Fullscreen, then <Settings2 className="w-3 h-3 shrink-0" /> Settings for the clearest picture
+              </p>
+            </div>
           </div>
 
           {renderTimelineRow()}
