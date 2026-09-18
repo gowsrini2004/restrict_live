@@ -4,12 +4,16 @@ import { QnAPanel } from '../components/QnAPanel';
 import { ProtectedEnvironmentNotice } from '../components/ProtectedEnvironmentNotice';
 import { streamApiClient } from '../services/apiClient';
 import { useTabLock } from '../hooks/useTabLock';
+import { useDisableInspection } from '../hooks/useDisableInspection';
 import { useAuth } from '../context/AuthContext';
 import { AlertOctagon, ArrowRightLeft, Sparkles, Clock, MessageSquare } from 'lucide-react';
 
 export const UserLivePage: React.FC = () => {
   const { isTabLocked, forceClaimLock } = useTabLock();
   const { isAdmin } = useAuth();
+  // Admins keep normal DevTools access for debugging — only attendees get
+  // the right-click/devtools-shortcut friction.
+  useDisableInspection(!isAdmin);
 
   const [streamConfig, setStreamConfig] = useState<{
     title: string;
@@ -36,7 +40,18 @@ export const UserLivePage: React.FC = () => {
   const fetchStreamConfig = async () => {
     try {
       const res = await streamApiClient.get('/stream/config/');
-      if (res.data?.success && res.data.data) setStreamConfig(res.data.data);
+      if (res.data?.success && res.data.data) {
+        const incoming = res.data.data;
+        // The backend blanks youtube_video_id on this poll whenever the
+        // request looks unauthenticated (e.g. a momentarily-expired access
+        // token, self-healed within ~15s by the background session
+        // heartbeat) — never let that transient gap stomp a video ID we
+        // already know is good and tear down playback for a few seconds.
+        setStreamConfig((prev) => ({
+          ...incoming,
+          youtube_video_id: incoming.youtube_video_id || prev.youtube_video_id,
+        }));
+      }
     } catch (err) {
       console.error('Failed to load stream config:', err);
     }
