@@ -10,6 +10,13 @@ interface ProtectedPlayerProps {
   videoId: string;
   title?: string;
   isLive?: boolean;
+  // Admin-controlled, backend-driven flag (StreamConfig.is_playback_mode) —
+  // set once a broadcast has ended so viewers can log in and watch the
+  // recording back. Same protected chrome/quality/speed controls as live,
+  // just with every "LIVE"/"Go Live" signal replaced by a neutral
+  // "Playback" label, since there is no live edge to lock speed to or jump
+  // back to once the stream is over.
+  isPlaybackMode?: boolean;
   offlineImageUrl?: string;
   offlineMessage?: string;
 }
@@ -144,6 +151,7 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
   videoId,
   title = 'International Retreat 2026 — Live Stream',
   isLive = true,
+  isPlaybackMode = false,
   offlineImageUrl = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=1200&q=80',
   offlineMessage  = 'The live broadcast is currently offline. Please stay tuned for the next session.',
 }) => {
@@ -241,6 +249,21 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
   const isScrubbingRef = useRef(false);
   const desiredPlaybackRateRef = useRef(1);
   const wasAtLiveEdgeRef = useRef(true);
+  // Mirrors the isPlaybackMode prop for the poll/seek callbacks below (which
+  // are set up with stable deps and read refs rather than closing over
+  // props). In playback mode there's no live edge at all — no locking speed
+  // near the end of the recording, no "Go Live" jump — so every site that
+  // computes/acts on isAtLiveEdge is gated on this being false first.
+  const isPlaybackModeRef = useRef(isPlaybackMode);
+  useEffect(() => { isPlaybackModeRef.current = isPlaybackMode; }, [isPlaybackMode]);
+  // Entering playback mode: there's no live edge to be "at", so clear it
+  // immediately rather than waiting for the next poll tick to notice.
+  useEffect(() => {
+    if (isPlaybackMode) {
+      wasAtLiveEdgeRef.current = false;
+      setIsAtLiveEdge(false);
+    }
+  }, [isPlaybackMode]);
   // While a manual seek is settling, YouTube's getCurrentTime() can still
   // briefly report the pre-seek position — trust our own optimistic value
   // instead of the poll during this window, to stop the thumb/LIVE badge
@@ -565,7 +588,7 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
         }
       }
 
-      if (durationRef.current > 0 && !isScrubbingRef.current && !isSettlingSeek) {
+      if (!isPlaybackModeRef.current && durationRef.current > 0 && !isScrubbingRef.current && !isSettlingSeek) {
         const atEdge = (durationRef.current - currentTimeRef.current) < LIVE_EDGE_THRESHOLD_SECONDS;
         if (atEdge !== wasAtLiveEdgeRef.current) {
           wasAtLiveEdgeRef.current = atEdge;
@@ -761,9 +784,12 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
   };
 
   const applyAtEdgeState = (atEdge: boolean) => {
-    wasAtLiveEdgeRef.current = atEdge;
-    setIsAtLiveEdge(atEdge);
-    if (atEdge && desiredPlaybackRateRef.current !== 1) {
+    // No live edge in playback mode — never lock speed or show live UI,
+    // regardless of how close the scrub position is to the recording's end.
+    const effectiveAtEdge = isPlaybackModeRef.current ? false : atEdge;
+    wasAtLiveEdgeRef.current = effectiveAtEdge;
+    setIsAtLiveEdge(effectiveAtEdge);
+    if (effectiveAtEdge && desiredPlaybackRateRef.current !== 1) {
       desiredPlaybackRateRef.current = 1;
       setPlaybackRate(1);
       playerRef.current?.setPlaybackRate(1);
@@ -913,7 +939,13 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
         <span className="text-[9px] sm:text-[10px] text-slate-400 font-mono tabular-nums w-7 sm:w-10 shrink-0">
           {formatTime(currentTime)}
         </span>
-        {isAtLiveEdge ? (
+        {isPlaybackMode ? (
+          // No live edge to show or jump to once the broadcast has ended —
+          // a neutral, static badge instead of any LIVE/Go-Live signal.
+          <span className="inline-flex items-center gap-1 px-1.5 sm:px-2.5 py-1 rounded-full bg-slate-800 text-slate-200 font-bold text-[9px] sm:text-[10px] uppercase tracking-widest shrink-0 border border-white/10">
+            <Clock className="w-3 h-3 text-amber-400" /> <span className="hidden sm:inline">Playback</span>
+          </span>
+        ) : isAtLiveEdge ? (
           <span className="inline-flex items-center gap-1 px-1.5 sm:px-2.5 py-1 rounded-full bg-red-600 text-white font-bold text-[9px] sm:text-[10px] uppercase tracking-widest shrink-0 animate-pulse">
             <Radio className="w-3 h-3" /> <span className="hidden sm:inline">LIVE</span>
           </span>

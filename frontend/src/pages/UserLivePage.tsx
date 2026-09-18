@@ -3,7 +3,7 @@ import { ProtectedPlayer } from '../components/ProtectedPlayer';
 import { QnAPanel } from '../components/QnAPanel';
 import { streamApiClient } from '../services/apiClient';
 import { useTabLock } from '../hooks/useTabLock';
-import { AlertOctagon, ArrowRightLeft, Sparkles } from 'lucide-react';
+import { AlertOctagon, ArrowRightLeft, Sparkles, Clock } from 'lucide-react';
 
 export const UserLivePage: React.FC = () => {
   const { isTabLocked, forceClaimLock } = useTabLock();
@@ -12,15 +12,23 @@ export const UserLivePage: React.FC = () => {
     title: string;
     youtube_video_id: string;
     is_live: boolean;
+    is_playback_mode: boolean;
     offline_image_url?: string;
     offline_message?: string;
   }>({
     title: 'International Retreat 2026 — Live Stream',
     youtube_video_id: 'jfKfPfyJRdk',
     is_live: true,
+    is_playback_mode: false,
     offline_image_url: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=1200&q=80',
     offline_message: 'The live broadcast is currently offline. Please stay tuned for the next session.',
   });
+
+  // Playback mode (admin-enabled once a broadcast has ended) forces the
+  // player visible even if is_live is off — that's normally the case once
+  // a stream ends, and playback mode is exactly what lets viewers watch the
+  // recording back despite that.
+  const isPlayerVisible = streamConfig.is_playback_mode || streamConfig.is_live;
 
   const fetchStreamConfig = async () => {
     try {
@@ -83,14 +91,20 @@ export const UserLivePage: React.FC = () => {
           </div>
         </div>
 
-        {/* Live status badge */}
+        {/* Live / Playback / Offline status badge */}
         <div className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full border shrink-0 ${
-          streamConfig.is_live
+          streamConfig.is_playback_mode
+            ? 'text-amber-400 bg-amber-500/10 border-amber-500/25'
+            : streamConfig.is_live
             ? 'text-red-400 bg-red-500/10 border-red-500/25'
             : 'text-slate-500 bg-slate-800/60 border-white/10'
         }`}>
-          <span className={`w-2 h-2 rounded-full ${streamConfig.is_live ? 'bg-red-500 animate-pulse' : 'bg-slate-600'}`} />
-          {streamConfig.is_live ? 'Broadcasting Live' : 'Not Live'}
+          {streamConfig.is_playback_mode ? (
+            <Clock className="w-3 h-3" />
+          ) : (
+            <span className={`w-2 h-2 rounded-full ${streamConfig.is_live ? 'bg-red-500 animate-pulse' : 'bg-slate-600'}`} />
+          )}
+          {streamConfig.is_playback_mode ? 'Playback Mode' : streamConfig.is_live ? 'Broadcasting Live' : 'Not Live'}
         </div>
       </div>
 
@@ -106,7 +120,8 @@ export const UserLivePage: React.FC = () => {
           <ProtectedPlayer
             videoId={streamConfig.youtube_video_id}
             title={streamConfig.title}
-            isLive={streamConfig.is_live}
+            isLive={isPlayerVisible}
+            isPlaybackMode={streamConfig.is_playback_mode}
             offlineImageUrl={streamConfig.offline_image_url}
             offlineMessage={streamConfig.offline_message}
           />

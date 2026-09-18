@@ -23,7 +23,8 @@ import {
   Crown,
   Search,
   User,
-  Shield
+  Shield,
+  Clock
 } from 'lucide-react';
 
 interface LiveUserMetric {
@@ -66,9 +67,11 @@ export const AdminDashboardPage: React.FC = () => {
   const [youtubeUrl, setYoutubeUrl] = useState<string>('https://www.youtube.com/watch?v=jfKfPfyJRdk');
   const [streamTitle, setStreamTitle] = useState<string>('International Retreat Live Stream');
   const [isStreamLive, setIsStreamLive] = useState<boolean>(true);
+  const [isPlaybackMode, setIsPlaybackMode] = useState<boolean>(false);
   const [offlineImageUrl, setOfflineImageUrl] = useState<string>('https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=1200&q=80');
   const [offlineMessage, setOfflineMessage] = useState<string>('The live broadcast is currently offline. Please stay tuned for the next session.');
   const [isTogglingLive, setIsTogglingLive] = useState<boolean>(false);
+  const [isTogglingPlayback, setIsTogglingPlayback] = useState<boolean>(false);
 
   // User Management state
   const [rosterUsers, setRosterUsers] = useState<UserRosterItem[]>([]);
@@ -124,6 +127,7 @@ export const AdminDashboardPage: React.FC = () => {
         setYoutubeUrl(res.data.data.youtube_url || '');
         setStreamTitle(res.data.data.title || '');
         setIsStreamLive(res.data.data.is_live);
+        setIsPlaybackMode(!!res.data.data.is_playback_mode);
         if (res.data.data.offline_image_url) setOfflineImageUrl(res.data.data.offline_image_url);
         if (res.data.data.offline_message) setOfflineMessage(res.data.data.offline_message);
       }
@@ -268,6 +272,30 @@ export const AdminDashboardPage: React.FC = () => {
       showError("Stream Action Failed", parseErrorMessage(err));
     } finally {
       setIsTogglingLive(false);
+    }
+  };
+
+  // One-Click Enable / Disable Playback Mode — intended for once a
+  // broadcast has ended, letting viewers log in and watch the recording
+  // back through the same protected player (labeled "Playback", not "Live").
+  const handleTogglePlaybackMode = async (targetState?: boolean) => {
+    try {
+      setIsTogglingPlayback(true);
+      const res = await streamApiClient.post('/admin/stream/toggle-playback/', {
+        is_playback_mode: targetState !== undefined ? targetState : !isPlaybackMode,
+      });
+      if (res.data?.success) {
+        setIsPlaybackMode(res.data.data.is_playback_mode);
+        if (res.data.data.is_playback_mode) {
+          showSuccess("Playback Mode Enabled", "Attendees can now log in and watch the recording back.");
+        } else {
+          showWarning("Playback Mode Disabled", "The recording is no longer available for playback.");
+        }
+      }
+    } catch (err) {
+      showError("Playback Mode Action Failed", parseErrorMessage(err));
+    } finally {
+      setIsTogglingPlayback(false);
     }
   };
 
@@ -417,32 +445,58 @@ export const AdminDashboardPage: React.FC = () => {
             </p>
           </div>
 
-          {/* Start / Stop Stream Quick Action Card */}
-          <div className="flex items-center gap-4 bg-slate-950/80 px-4 py-3 rounded-2xl border border-white/10 shrink-0">
-            <div className="flex items-center gap-2">
-              <span className={`w-3.5 h-3.5 rounded-full ${isStreamLive ? 'bg-red-500 animate-ping' : 'bg-slate-600'}`} />
-              <span className="text-xs font-bold text-white uppercase tracking-wider">
-                {isStreamLive ? 'Broadcasting Live' : 'Stream Offline'}
-              </span>
+          {/* Quick Action Cards: Start/Stop Stream & Playback Mode */}
+          <div className="flex flex-wrap items-center gap-3 shrink-0">
+            {/* Start / Stop Stream Quick Action Card */}
+            <div className="flex items-center gap-4 bg-slate-950/80 px-4 py-3 rounded-2xl border border-white/10 shrink-0">
+              <div className="flex items-center gap-2">
+                <span className={`w-3.5 h-3.5 rounded-full ${isStreamLive ? 'bg-red-500 animate-ping' : 'bg-slate-600'}`} />
+                <span className="text-xs font-bold text-white uppercase tracking-wider">
+                  {isStreamLive ? 'Broadcasting Live' : 'Stream Offline'}
+                </span>
+              </div>
+
+              {isStreamLive ? (
+                <button
+                  onClick={() => handleToggleLiveStatus(false)}
+                  disabled={isTogglingLive}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-extrabold text-xs shadow-lg shadow-red-600/30 transition-all active:scale-95"
+                >
+                  <Square className="w-4 h-4 fill-current" /> STOP STREAM
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleToggleLiveStatus(true)}
+                  disabled={isTogglingLive}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs shadow-lg shadow-emerald-500/30 transition-all active:scale-95"
+                >
+                  <Play className="w-4 h-4 fill-current" /> START STREAM
+                </button>
+              )}
             </div>
 
-            {isStreamLive ? (
+            {/* Playback Mode Quick Action Card — for once a broadcast has
+                ended, so attendees can log in and watch the recording back. */}
+            <div className="flex items-center gap-4 bg-slate-950/80 px-4 py-3 rounded-2xl border border-white/10 shrink-0">
+              <div className="flex items-center gap-2">
+                <Clock className={`w-3.5 h-3.5 ${isPlaybackMode ? 'text-amber-400' : 'text-slate-600'}`} />
+                <span className="text-xs font-bold text-white uppercase tracking-wider">
+                  {isPlaybackMode ? 'Playback Enabled' : 'Playback Disabled'}
+                </span>
+              </div>
+
               <button
-                onClick={() => handleToggleLiveStatus(false)}
-                disabled={isTogglingLive}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-extrabold text-xs shadow-lg shadow-red-600/30 transition-all active:scale-95"
+                onClick={() => handleTogglePlaybackMode(!isPlaybackMode)}
+                disabled={isTogglingPlayback}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl font-extrabold text-xs shadow-lg transition-all active:scale-95 ${
+                  isPlaybackMode
+                    ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/10'
+                    : 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/30'
+                }`}
               >
-                <Square className="w-4 h-4 fill-current" /> STOP STREAM
+                <Clock className="w-4 h-4" /> {isPlaybackMode ? 'DISABLE PLAYBACK' : 'ENABLE PLAYBACK'}
               </button>
-            ) : (
-              <button
-                onClick={() => handleToggleLiveStatus(true)}
-                disabled={isTogglingLive}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs shadow-lg shadow-emerald-500/30 transition-all active:scale-95"
-              >
-                <Play className="w-4 h-4 fill-current" /> START STREAM
-              </button>
-            )}
+            </div>
           </div>
         </div>
 

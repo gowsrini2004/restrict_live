@@ -8,6 +8,13 @@ class StreamConfig(models.Model):
     youtube_url = models.CharField(max_length=500, default="https://www.youtube.com/watch?v=jfKfPfyJRdk")
     youtube_video_id = models.CharField(max_length=50, default="jfKfPfyJRdk")
     is_live = models.BooleanField(default=True)
+    # Admin-only, backend-driven switch — enabled once a broadcast has ended
+    # so viewers can log in and watch the recording back through the same
+    # protected player, just labeled "Playback" instead of "Live". Separate
+    # from is_live so admins can turn the live broadcast off (showing the
+    # offline banner to anyone NOT yet allowed to watch the recording) and
+    # only flip this on when the recording is actually ready to share.
+    is_playback_mode = models.BooleanField(default=False)
     offline_image_url = models.TextField(
         default="https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=1200&q=80"
     )

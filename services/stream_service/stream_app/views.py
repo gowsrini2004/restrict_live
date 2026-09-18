@@ -46,6 +46,8 @@ def update_stream_config(request):
         config.title = serializer.validated_data['title']
     if 'is_live' in serializer.validated_data:
         config.is_live = serializer.validated_data['is_live']
+    if 'is_playback_mode' in serializer.validated_data:
+        config.is_playback_mode = serializer.validated_data['is_playback_mode']
     if 'offline_image_url' in serializer.validated_data:
         config.offline_image_url = serializer.validated_data['offline_image_url']
     if 'offline_message' in serializer.validated_data:
@@ -72,6 +74,30 @@ def toggle_live_status(request):
         config.is_live = bool(request.data['is_live'])
     else:
         config.is_live = not config.is_live
+
+    config.save()
+
+    return Response({
+        "success": True,
+        "data": StreamConfigSerializer(config).data
+    })
+
+@api_view(['POST'])
+@require_admin
+def toggle_playback_mode(request):
+    """
+    Admin endpoint to enable/disable Playback Mode with a single click —
+    intended for once a broadcast has ended, letting viewers log in and
+    watch the recording back through the same protected player.
+    """
+    config = StreamConfig.objects.first()
+    if not config:
+        config = StreamConfig.objects.create()
+
+    if 'is_playback_mode' in request.data:
+        config.is_playback_mode = bool(request.data['is_playback_mode'])
+    else:
+        config.is_playback_mode = not config.is_playback_mode
 
     config.save()
 
