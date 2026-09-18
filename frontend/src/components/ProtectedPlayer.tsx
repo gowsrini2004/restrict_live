@@ -859,6 +859,21 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
 
           {renderTimelineRow()}
 
+          {/* Mobile-only 4K info row — the desktop version below lives in
+              the tight center slot between play/pause and fullscreen, which
+              has no room at phone widths (it's `hidden` there entirely).
+              Rendered as its own separate, full-width row here instead so
+              phone viewers — most of them — actually see it. */}
+          <div className="flex sm:hidden items-center gap-1.5 bg-gradient-to-r from-amber-500/15 via-amber-500/5 to-transparent border border-amber-500/30 rounded-lg px-2 py-1.5">
+            <span className="flex items-center gap-1 bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950 font-black text-[9px] px-1.5 py-0.5 rounded-full shrink-0 shadow shadow-amber-500/30">
+              <Sparkles className="w-2.5 h-2.5" />
+              4K
+            </span>
+            <span className="text-[9px] leading-tight text-amber-300 font-semibold">
+              Streaming up to 4K — go fullscreen and tap the gear icon for max quality
+            </span>
+          </div>
+
           <div className="flex items-center justify-between gap-1.5 sm:gap-3">
 
             {/* Left group: Play/Pause & Compact Volume Slider */}
