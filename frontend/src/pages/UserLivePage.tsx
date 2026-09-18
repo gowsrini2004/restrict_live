@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { ProtectedPlayer } from '../components/ProtectedPlayer';
 import { QnAPanel } from '../components/QnAPanel';
+import { ProtectedEnvironmentNotice } from '../components/ProtectedEnvironmentNotice';
 import { streamApiClient } from '../services/apiClient';
 import { useTabLock } from '../hooks/useTabLock';
+import { useAuth } from '../context/AuthContext';
 import { AlertOctagon, ArrowRightLeft, Sparkles, Clock, MessageSquare } from 'lucide-react';
 
 export const UserLivePage: React.FC = () => {
   const { isTabLocked, forceClaimLock } = useTabLock();
+  const { isAdmin } = useAuth();
 
   const [streamConfig, setStreamConfig] = useState<{
     title: string;
@@ -74,6 +77,11 @@ export const UserLivePage: React.FC = () => {
   /* ── Main page ───────────────────────────────────────────────────── */
   return (
     <div className="h-full max-h-full bg-slate-950 flex flex-col overflow-hidden">
+
+      {/* Attendee-only, once-per-session notice explaining up front why
+          YouTube's own controls are disabled and where quality/speed
+          actually live — admins already know this, so it's skipped for them. */}
+      {!isAdmin && <ProtectedEnvironmentNotice />}
 
       {/* Title bar (shrink-0) */}
       <div className="bg-gradient-to-r from-slate-900 to-amber-950/20 border-b border-white/8 px-4 sm:px-6 py-2.5 flex items-center justify-between gap-3 shrink-0">
