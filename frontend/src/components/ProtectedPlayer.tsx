@@ -881,7 +881,7 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
                   4K
                 </span>
                 <span className="text-[10px] sm:text-[11px] text-amber-300 font-semibold truncate">
-                  Go to fullscreen and click the gear icon for settings
+                  This live stream is broadcasting in up to 4K — go fullscreen and click the gear icon to set the quality to maximum
                 </span>
               </div>
             </div>
