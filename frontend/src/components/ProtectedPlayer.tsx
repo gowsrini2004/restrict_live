@@ -1171,12 +1171,28 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
     >
       {/* ── 16:9 Video Container — fits available height strictly ──────── */}
       <div className="relative w-full flex-1 min-h-0 flex items-center justify-center bg-black overflow-hidden">
-        {isLive ? (
-          <div ref={aspectVideoRef} className="relative w-full h-full max-w-full max-h-full aspect-video flex items-center justify-center overflow-hidden">
-            {/* The official YT.Player API replaces this node with its own
-                managed <iframe>, styled/sized via the onReady handler above. */}
-            <div ref={playerMountRef} className="absolute inset-0 w-full h-full" />
+        {/* This wrapper (and playerMountRef inside it) is ALWAYS mounted,
+            never conditionally removed by React — only hidden via CSS when
+            offline. The official YT.Player API REPLACES the DOM node it's
+            given with its own <iframe>, entirely outside React's knowledge.
+            If React itself ever tries to unmount/remove that node (e.g. the
+            old isLive ? (...) : (...) ternary did, swapping to the offline
+            banner), it throws "Failed to execute 'removeChild': the node to
+            be removed is not a child of this node" — React's fiber tree
+            still expects the plain div it originally rendered, but YouTube
+            already swapped it out, and by the time React tries to clean it
+            up the DOM no longer matches. Never asking React to remove this
+            subtree avoids the crash entirely, regardless of live/offline. */}
+        <div
+          ref={aspectVideoRef}
+          className={`relative w-full h-full max-w-full max-h-full aspect-video items-center justify-center overflow-hidden ${isLive ? 'flex' : 'hidden'}`}
+        >
+          {/* The official YT.Player API replaces this node with its own
+              managed <iframe>, styled/sized via the onReady handler above. */}
+          <div ref={playerMountRef} className="absolute inset-0 w-full h-full" />
 
+          {isLive && (
+          <>
             {/* Quality request/result toast — deliberately OUTSIDE the
                 auto-hiding overlay below and never fades with it, so a
                 status update firing while fullscreen controls are hidden
@@ -1273,8 +1289,11 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
                 </div>
               </div>
             )}
-          </div>
-        ) : (
+          </>
+          )}
+        </div>
+
+        {!isLive && (
           /* ── Offline banner ─────────────────────────────────────────── */
           <div className="relative w-full h-full min-h-[240px] z-20 flex items-center justify-center p-4 bg-slate-950">
             <img
