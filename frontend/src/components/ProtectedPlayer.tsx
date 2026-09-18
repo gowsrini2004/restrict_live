@@ -14,10 +14,11 @@ interface ProtectedPlayerProps {
   offlineMessage?: string;
 }
 
-// Only 3 selectable tiers now — 'auto' and the old 'medium' (Low Data) tier
-// were both dropped from the picker. 'auto' still exists as an internal-only
-// state (see QUALITY_FALLBACK_VALUE below) that the retry system can settle
-// on if none of these 3 can be reached, it's just no longer user-choosable.
+// Only 3 selectable tiers, and only these 3 are ever loaded — no 'auto'
+// fallback, internal or otherwise. If the requested tier can't be reached,
+// the retry system below steps DOWN this same list to the next-highest tier
+// that still IS reachable, rather than ever handing control fully back to
+// YouTube's own unconstrained adaptive pick.
 const QUALITIES = [
   // 'hd2160' is YouTube's real identifier for 4K, reported by the live
   // onPlaybackQualityChange event. 'highres' is a separate, legacy tag
@@ -131,12 +132,13 @@ const QUALITY_RETRY_RELOAD_THRESHOLD = 30;
 // asked for (a reload never silently downgrades the request), so this is
 // "try 3 fresh starts", not "retry then quietly settle for something else".
 const QUALITY_MAX_RELOAD_ATTEMPTS = 3;
-// Once all reinit attempts are exhausted and it STILL doesn't match, stop
-// chasing a specific number and hand control back to YouTube's own adaptive
-// algorithm — 'auto' is a genuine terminal state (the retry effect never
-// fights 'auto'), unlike falling back to another fixed tier that could
-// itself be unreachable and loop forever.
-const QUALITY_FALLBACK_VALUE = 'auto';
+// Highest → lowest, exactly the 3 selectable tiers. Once all reinit
+// attempts for a tier are exhausted, the retry system steps DOWN to the
+// next entry here (the highest quality still realistically achievable)
+// instead of ever giving up to an unconstrained 'auto'. FHD is the floor —
+// if even that can't be reached, there's nowhere lower to fall to, so it
+// just keeps retrying FHD.
+const QUALITY_TIERS_DESC = QUALITIES.map((q) => q.value);
 
 export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
   videoId,
@@ -218,7 +220,7 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
   // How many hard reinits we've already forced while chasing the CURRENT
   // desired quality — each retry-threshold hit increments this; once it
   // reaches QUALITY_MAX_RELOAD_ATTEMPTS, we stop reinit-ing that quality
-  // and fall back to 'auto' instead.
+  // and step down to the next-lower of the 3 real tiers instead.
   const qualityReloadAttemptsRef = useRef(0);
   // Position/speed to restore right after a quality-triggered reinit — a
   // fresh YT.Player always starts back at the live edge at 1x, so without
@@ -433,9 +435,10 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
       }
     };
 
-    // Nothing to enforce with no preference, or before any real reading has
-    // arrived yet (onPlaybackQualityChange hasn't fired for this load yet).
-    if (selectedQuality === 'auto' || actualQuality === 'auto') {
+    // Nothing to enforce before any real reading has arrived yet
+    // (onPlaybackQualityChange hasn't fired for this load yet — 'auto' here
+    // is just that initial placeholder, never a chosen target).
+    if (actualQuality === 'auto') {
       clearRetry();
       wasQualityMatchedRef.current = true;
       return clearRetry;
@@ -500,15 +503,21 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
             }
 
             // Exhausted every reinit attempt and it STILL doesn't match —
-            // stop chasing a specific tier and hand control back to
-            // YouTube's own adaptive algorithm instead of retrying forever.
-            if (selectedQuality !== QUALITY_FALLBACK_VALUE) {
-              setQualityToast(`Couldn't reach ${desiredLabel} after ${QUALITY_MAX_RELOAD_ATTEMPTS} reloads — switching to Auto`);
+            // step down to the next-highest tier that's realistically
+            // achievable instead of retrying this one forever. Still one of
+            // the 3 real tiers, never an unconstrained 'auto'.
+            const tierIndex = QUALITY_TIERS_DESC.indexOf(selectedQuality);
+            const nextLowerTier = tierIndex >= 0 ? QUALITY_TIERS_DESC[tierIndex + 1] : undefined;
+            if (nextLowerTier) {
+              const nextLabel = QUALITIES.find((q) => q.value === nextLowerTier)?.badge || nextLowerTier.toUpperCase();
+              setQualityToast(`Couldn't reach ${desiredLabel} after ${QUALITY_MAX_RELOAD_ATTEMPTS} reloads — switching to ${nextLabel}`);
               setTimeout(() => setQualityToast(null), 3000);
-              desiredQualityRef.current = QUALITY_FALLBACK_VALUE;
-              setSelectedQuality(QUALITY_FALLBACK_VALUE);
-              qualityReloadAttemptsRef.current = 0;
+              desiredQualityRef.current = nextLowerTier;
+              setSelectedQuality(nextLowerTier);
             }
+            // Already at the lowest tier (FHD) — nothing left to step down
+            // to, so just reset and keep retrying it at the normal cadence.
+            qualityReloadAttemptsRef.current = 0;
             return 0;
           });
         }, QUALITY_RETRY_INTERVAL_MS);
@@ -975,7 +984,7 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
     // A specific quality request must match exactly — playing HIGHER than
     // requested (e.g. 4K when 1080p was asked, to save data) is just as much
     // a mismatch as playing lower, and both keep getting corrected below.
-    const gotExactlyWhatWasAsked = selectedQuality === 'auto' || actualQuality === selectedQuality;
+    const gotExactlyWhatWasAsked = actualQuality === selectedQuality;
     const isOverDelivering =
       !gotExactlyWhatWasAsked && typeof desiredRank === 'number' && typeof actualRank === 'number' && actualRank > desiredRank;
 
