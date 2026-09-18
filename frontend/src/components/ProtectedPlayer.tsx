@@ -62,6 +62,13 @@ const NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX = 10;
  * reachable outside fullscreen. */
 const NATIVE_MENU_ZONE_TOP_PERCENT = 40;
 const NATIVE_MENU_ZONE_SIDE_PERCENT = 28; // left AND right margin — window width = 100 - 2×this
+// Confirmed correct on desktop, but on mobile the real menu panel doesn't
+// actually extend as far up as this window did — the extra clickable space
+// above the real menu let a tap land there and accidentally register as a
+// menu-item click. Pushing the top edge further down shrinks the window so
+// only genuine menu content is reachable. Edit directly to tune against a
+// real phone.
+const NATIVE_MENU_ZONE_TOP_PERCENT_MOBILE = 58;
 
 const formatTime = (totalSeconds: number): string => {
   if (!isFinite(totalSeconds) || totalSeconds < 0) return '0:00';
@@ -129,6 +136,12 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(80);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // Tracks Tailwind's `sm` breakpoint (640px) so the native settings-menu
+  // click-through window can use a mobile-specific size — see
+  // NATIVE_MENU_ZONE_TOP_PERCENT_MOBILE above for why.
+  const [isMobileViewport, setIsMobileViewport] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < 640
+  );
 
   // Timeline / DVR-seek state
   const [currentTime, setCurrentTime] = useState(0);
@@ -198,6 +211,15 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
       document.removeEventListener('fullscreenchange', onChange);
       document.removeEventListener('webkitfullscreenchange', onChange);
     };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mql = window.matchMedia('(max-width: 639px)');
+    const onChange = () => setIsMobileViewport(mql.matches);
+    onChange();
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
   }, []);
 
   const clearHideControlsTimer = () => {
@@ -588,6 +610,8 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
     );
   };
 
+  const nativeMenuZoneTopPercent = isMobileViewport ? NATIVE_MENU_ZONE_TOP_PERCENT_MOBILE : NATIVE_MENU_ZONE_TOP_PERCENT;
+
   return (
     <div
       ref={containerRef}
@@ -696,17 +720,17 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
                   />
                   <div
                     className="absolute left-0 right-0 z-10 cursor-pointer"
-                    style={{ top: NATIVE_GEAR_ZONE_HEIGHT_PX, height: `calc(${NATIVE_MENU_ZONE_TOP_PERCENT}% - ${NATIVE_GEAR_ZONE_HEIGHT_PX}px)` }}
+                    style={{ top: NATIVE_GEAR_ZONE_HEIGHT_PX, height: `calc(${nativeMenuZoneTopPercent}% - ${NATIVE_GEAR_ZONE_HEIGHT_PX}px)` }}
                     onClick={togglePlay}
                   />
                   <div
                     className="absolute bottom-0 left-0 z-10 cursor-pointer"
-                    style={{ top: `${NATIVE_MENU_ZONE_TOP_PERCENT}%`, width: `${NATIVE_MENU_ZONE_SIDE_PERCENT}%` }}
+                    style={{ top: `${nativeMenuZoneTopPercent}%`, width: `${NATIVE_MENU_ZONE_SIDE_PERCENT}%` }}
                     onClick={togglePlay}
                   />
                   <div
                     className="absolute bottom-0 right-0 z-10 cursor-pointer"
-                    style={{ top: `${NATIVE_MENU_ZONE_TOP_PERCENT}%`, width: `${NATIVE_MENU_ZONE_SIDE_PERCENT}%` }}
+                    style={{ top: `${nativeMenuZoneTopPercent}%`, width: `${NATIVE_MENU_ZONE_SIDE_PERCENT}%` }}
                     onClick={togglePlay}
                   />
                 </>
