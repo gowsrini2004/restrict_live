@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize2,
-  ShieldAlert, Radio, Clock, SkipForward, Settings2,
+  ShieldAlert, Radio, Clock, SkipForward, Settings2, Sparkles,
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 
@@ -872,11 +872,18 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
               </div>
             </div>
 
-            {/* Center stream title indicator */}
+            {/* Center: 4K glow badge, in place of the old plain stream-title
+                text — same compact slot between volume and fullscreen. */}
             <div className="hidden sm:flex flex-1 min-w-0 items-center justify-center px-2">
-              <span className="text-xs font-semibold text-slate-400 truncate max-w-[240px]">
-                {title}
-              </span>
+              <div className="flex items-center gap-1.5 bg-gradient-to-r from-amber-500/15 via-amber-500/5 to-transparent border border-amber-500/30 rounded-full pl-1 pr-3 py-1 shadow-md shadow-amber-500/10 max-w-full">
+                <span className="flex items-center gap-1 bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950 font-black text-[10px] px-2 py-1 rounded-full shrink-0 shadow shadow-amber-500/30">
+                  <Sparkles className="w-3 h-3" />
+                  4K
+                </span>
+                <span className="text-[10px] sm:text-[11px] text-amber-300 font-semibold truncate">
+                  Fullscreen + Settings for max quality
+                </span>
+              </div>
             </div>
 
             {/* Right group: Fullscreen only — the quality/speed prompt used

@@ -108,18 +108,6 @@ export const UserLivePage: React.FC = () => {
         </div>
       </div>
 
-      {/* Subtle quality hint strip, right under the title bar — plain text,
-          no badge/gradient, just enough to be noticed without competing
-          with the title bar above it. Only relevant while there's actually
-          something to watch. */}
-      {isPlayerVisible && (
-        <div className="px-4 sm:px-6 py-1 bg-slate-900/50 border-b border-white/5 shrink-0">
-          <p className="text-[10px] sm:text-[11px] text-slate-400 text-center sm:text-left">
-            Streaming up to 4K — go Fullscreen and select the highest Quality in Settings for the clearest picture.
-          </p>
-        </div>
-      )}
-
       {/* Content area — fills remaining height strictly on desktop (no outer
           scroll); on mobile the two panels stack and this area itself
           scrolls, since a stacked player + Q&A list is taller than one
