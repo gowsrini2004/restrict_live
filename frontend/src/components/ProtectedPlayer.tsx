@@ -53,14 +53,15 @@ const NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX = 10;
 
 /* Settings-menu popup window — percentages of the video's own box (not
  * fixed pixels) so it scales with player size instead of breaking on
- * differently-sized embeds. YouTube's popup is roughly FIXED pixel size
- * internally, so as a % of a small non-fullscreen player it covers a much
- * bigger share of the frame than it does in fullscreen — hence two separate
- * tunings rather than one shared number. Edit these directly to tune. */
-const NATIVE_MENU_ZONE_TOP_PERCENT_FULLSCREEN = 40;
-const NATIVE_MENU_ZONE_SIDE_PERCENT_FULLSCREEN = 28; // left AND right margin — window width = 100 - 2×this
-const NATIVE_MENU_ZONE_TOP_PERCENT_NORMAL = 55;
-const NATIVE_MENU_ZONE_SIDE_PERCENT_NORMAL = 35;
+ * differently-sized embeds. Native quality/speed access is FULLSCREEN ONLY
+ * (see the click-catcher below) — YouTube's popup is roughly fixed-pixel
+ * internally, so tuning one shared window that also worked at small
+ * non-fullscreen player sizes wasn't practical; restricting access to
+ * fullscreen (where these numbers are confirmed correct) avoids needing a
+ * second tuning entirely, at the cost of quality/speed simply not being
+ * reachable outside fullscreen. */
+const NATIVE_MENU_ZONE_TOP_PERCENT = 40;
+const NATIVE_MENU_ZONE_SIDE_PERCENT = 28; // left AND right margin — window width = 100 - 2×this
 
 const formatTime = (totalSeconds: number): string => {
   if (!isFinite(totalSeconds) || totalSeconds < 0) return '0:00';
@@ -587,12 +588,6 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
     );
   };
 
-  // YouTube's settings-menu popup is roughly fixed-pixel internally, so it
-  // covers a much bigger share of a small non-fullscreen player than it
-  // does in fullscreen — pick the matching tuning for the current mode.
-  const nativeMenuZoneTopPercent = isFullscreen ? NATIVE_MENU_ZONE_TOP_PERCENT_FULLSCREEN : NATIVE_MENU_ZONE_TOP_PERCENT_NORMAL;
-  const nativeMenuZoneSidePercent = isFullscreen ? NATIVE_MENU_ZONE_SIDE_PERCENT_FULLSCREEN : NATIVE_MENU_ZONE_SIDE_PERCENT_NORMAL;
-
   return (
     <div
       ref={containerRef}
@@ -628,15 +623,13 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
           {isLive && (
             <>
               {/* Top overlay — hides YouTube logo/title. "Protected" badge
-                lives on the LEFT now (was right), since the right side of
-                this same row is where YouTube's real settings gear renders
-                — see the native-controls hot zone + hint badge below. The
-                gradient itself stops short of that zone so the gear isn't
-                visually darkened. Fades out with the rest of the chrome on
-                fullscreen inactivity. */}
+                lives on the LEFT (in fullscreen, that's also where the real
+                settings gear renders on the right — see the native-controls
+                hot zone + hint badge below). Fades out with the rest of the
+                chrome on fullscreen inactivity. */}
               <div className={`absolute top-0 left-0 h-16 bg-gradient-to-b from-black/85 to-transparent z-20 flex items-center gap-3 px-3 sm:px-4 pointer-events-auto transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
                 }`}
-                style={{ right: NATIVE_GEAR_ZONE_WIDTH_PX + NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX }}
+                style={isFullscreen ? { right: NATIVE_GEAR_ZONE_WIDTH_PX + NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX } : { right: 0 }}
               >
                 {!isFullscreen && (
                   <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-black/50 px-2.5 py-1 rounded-full border border-amber-500/25 backdrop-blur">
@@ -645,69 +638,81 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
                 )}
               </div>
 
-              {/* Small in-video hint, pointer-events-none so it never blocks
-                the gear window right next to it. */}
-              <div className={`absolute top-2 sm:top-3 z-20 pointer-events-none transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0'
-                }`}
-                style={{ right: NATIVE_GEAR_ZONE_WIDTH_PX + NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX + 8 }}
-              >
-                <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-black/50 px-2.5 py-1 rounded-full border border-amber-500/25 backdrop-blur whitespace-nowrap">
-                  <Settings2 className="w-3 h-3" /> Click ⚙ for Quality/Speed
-                </span>
-              </div>
+              {/* Small in-video hint pointing at the gear — only shown in
+                fullscreen, since that's the only mode it's actually
+                clickable in (see click-catcher below). Pointer-events-none
+                so it never blocks the gear window right next to it. */}
+              {isFullscreen && (
+                <div className={`absolute top-2 sm:top-3 z-20 pointer-events-none transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0'
+                  }`}
+                  style={{ right: NATIVE_GEAR_ZONE_WIDTH_PX + NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX + 8 }}
+                >
+                  <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-black/50 px-2.5 py-1 rounded-full border border-amber-500/25 backdrop-blur whitespace-nowrap">
+                    <Settings2 className="w-3 h-3" /> Click ⚙ for Quality/Speed
+                  </span>
+                </div>
+              )}
 
               {/* Bottom shield — hides YouTube's own seek bar/branding. */}
               <div className="absolute bottom-0 left-0 right-0 h-14 bg-gradient-to-t from-black to-transparent z-20 pointer-events-none" />
 
-              {/* Click-to-play catcher — covers the ENTIRE video except two
-                small, ALWAYS-open windows: the settings-gear icon itself
-                (top-right) and the area its popup menu renders into
-                (center-lower, see NATIVE_MENU_ZONE_* above). Clicks in
-                either window fall through to the real iframe underneath
-                (pointer-events: auto, set in onReady) instead of being
-                captured here, so the native quality/speed menu is
-                genuinely usable — nothing else in the video is ever
-                click-through, so this is nowhere near exposing the whole
-                video. If no menu happens to be open when a viewer taps
-                inside the (always-open) menu window, that click just lands
-                on the plain video there — YouTube's own native click-to-
-                pause fires instead of our custom togglePlay, which is a
-                harmless equivalent, not a gap in protection.
+              {/* Click-to-play catcher. Native quality/speed access is
+                FULLSCREEN ONLY: tuning one shared exposed-window size that
+                also worked at small non-fullscreen player sizes wasn't
+                practical (YouTube's popup is roughly fixed-pixel internally,
+                so it covers a much bigger share of a small player than a
+                fullscreen one), and adding a second normal-mode tuning was
+                its own maintenance burden. So in fullscreen, this covers
+                the ENTIRE video except two small, always-open windows — the
+                settings-gear icon (top-right) and the area its popup menu
+                renders into (center, see NATIVE_MENU_ZONE_* above); clicks
+                there fall through to the real iframe (pointer-events: auto,
+                set in onReady). In normal (non-fullscreen) mode, there is
+                no exposed window at all — the video is fully protected,
+                and quality/speed simply aren't reachable until the viewer
+                goes fullscreen. If no menu happens to be open when a viewer
+                taps inside the (always-open) menu window, that click just
+                lands on the plain video — YouTube's own native click-to-
+                pause fires instead of our custom togglePlay, a harmless
+                equivalent, not a gap in protection.
 
                 Known tradeoff, kept deliberately: a "click outside the menu
                 to dismiss it" (YouTube's own native gesture) lands OUTSIDE
                 both windows, so it hits this overlay instead of reaching
                 YouTube — the menu has to be closed by clicking the gear
                 again or picking an option, not by clicking elsewhere in the
-                video. An automatic fix existed (temporarily opening the
-                whole video while the browser's focus was inside the
-                iframe) but was rejected as too much exposure — this is the
-                deliberately narrower tradeoff instead. */}
-              <div
-                className="absolute top-0 left-0 z-10 cursor-pointer"
-                style={{ height: NATIVE_GEAR_ZONE_HEIGHT_PX, right: NATIVE_GEAR_ZONE_WIDTH_PX + NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX }}
-                onClick={togglePlay}
-              />
-              <div
-                className="absolute top-0 right-0 z-10 cursor-pointer"
-                style={{ height: NATIVE_GEAR_ZONE_HEIGHT_PX, width: NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX }}
-                onClick={togglePlay}
-              />
-              <div
-                className="absolute left-0 right-0 z-10 cursor-pointer"
-                style={{ top: NATIVE_GEAR_ZONE_HEIGHT_PX, height: `calc(${nativeMenuZoneTopPercent}% - ${NATIVE_GEAR_ZONE_HEIGHT_PX}px)` }}
-                onClick={togglePlay}
-              />
-              <div
-                className="absolute bottom-0 left-0 z-10 cursor-pointer"
-                style={{ top: `${nativeMenuZoneTopPercent}%`, width: `${nativeMenuZoneSidePercent}%` }}
-                onClick={togglePlay}
-              />
-              <div
-                className="absolute bottom-0 right-0 z-10 cursor-pointer"
-                style={{ top: `${nativeMenuZoneTopPercent}%`, width: `${nativeMenuZoneSidePercent}%` }}
-                onClick={togglePlay}
-              />
+                video. */}
+              {isFullscreen ? (
+                <>
+                  <div
+                    className="absolute top-0 left-0 z-10 cursor-pointer"
+                    style={{ height: NATIVE_GEAR_ZONE_HEIGHT_PX, right: NATIVE_GEAR_ZONE_WIDTH_PX + NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX }}
+                    onClick={togglePlay}
+                  />
+                  <div
+                    className="absolute top-0 right-0 z-10 cursor-pointer"
+                    style={{ height: NATIVE_GEAR_ZONE_HEIGHT_PX, width: NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX }}
+                    onClick={togglePlay}
+                  />
+                  <div
+                    className="absolute left-0 right-0 z-10 cursor-pointer"
+                    style={{ top: NATIVE_GEAR_ZONE_HEIGHT_PX, height: `calc(${NATIVE_MENU_ZONE_TOP_PERCENT}% - ${NATIVE_GEAR_ZONE_HEIGHT_PX}px)` }}
+                    onClick={togglePlay}
+                  />
+                  <div
+                    className="absolute bottom-0 left-0 z-10 cursor-pointer"
+                    style={{ top: `${NATIVE_MENU_ZONE_TOP_PERCENT}%`, width: `${NATIVE_MENU_ZONE_SIDE_PERCENT}%` }}
+                    onClick={togglePlay}
+                  />
+                  <div
+                    className="absolute bottom-0 right-0 z-10 cursor-pointer"
+                    style={{ top: `${NATIVE_MENU_ZONE_TOP_PERCENT}%`, width: `${NATIVE_MENU_ZONE_SIDE_PERCENT}%` }}
+                    onClick={togglePlay}
+                  />
+                </>
+              ) : (
+                <div className="absolute inset-0 z-10 cursor-pointer" onClick={togglePlay} />
+              )}
 
               {/* Fullscreen bottom overlay — timeline, play/pause, volume &
                 exit-fullscreen; fades out with the rest of the chrome on
@@ -875,16 +880,17 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
             </div>
 
             {/* Right group: native-quality hint & Fullscreen. Quality/speed
-              live in YouTube's own settings gear (top-right corner of the
-              video), always click-through — see the click-catcher comment
-              in the video area above. */}
+              are FULLSCREEN ONLY (see the click-catcher comment in the video
+              area above for why) — this hint prompts going fullscreen to
+              reach them, rather than pointing at a gear that isn't actually
+              clickable in this (normal) mode. */}
             <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               <span
                 className="hidden sm:flex h-8 sm:h-9 px-2 sm:px-3 rounded-xl items-center gap-1 sm:gap-1.5 bg-slate-900 text-slate-400 border border-white/10 text-[10px] sm:text-xs font-semibold shrink-0"
-                title="Quality and playback speed are set from YouTube's own settings icon, in the top-right corner of the video."
+                title="Quality and playback speed are only reachable in fullscreen, from YouTube's own settings icon in the top-right corner of the video."
               >
                 <Settings2 className="w-3.5 h-3.5 text-amber-400" />
-                Quality/Speed ↗
+                Fullscreen for Quality/Speed
               </span>
 
               {/* Fullscreen */}
