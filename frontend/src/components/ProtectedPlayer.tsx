@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize2,
-  ShieldAlert, Radio, Clock, SkipForward, Settings2, Sparkles,
+  ShieldAlert, Radio, Clock, SkipForward, Settings2,
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 
@@ -822,25 +822,6 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
       {/* ── Control Bar (Hidden in Fullscreen Mode — fullscreen has its own overlay bar) ── */}
       {isLive && !isFullscreen && (
         <div className="bg-slate-950 border-t border-white/10 px-2 sm:px-4 py-2 sm:py-2.5 space-y-1.5 sm:space-y-2 shrink-0">
-
-          {/* Bold, standalone call-to-action — its own row, not a chip
-              buried in the button group. A product-badge treatment (bold
-              "4K" chip + two-line copy) reads far more like a real feature
-              callout than one long sentence with icons crammed mid-text. */}
-          <div className="flex items-center gap-2.5 sm:gap-3 bg-gradient-to-r from-amber-500/15 via-amber-500/5 to-transparent border border-amber-500/30 rounded-xl px-3 py-2 shadow-lg shadow-amber-500/5">
-            <div className="flex items-center gap-1 bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950 font-black text-[11px] sm:text-sm px-2.5 py-1.5 rounded-lg shrink-0 shadow-md shadow-amber-500/30">
-              <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              4K
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-[11px] sm:text-xs font-bold text-amber-300 leading-tight">
-                This stream supports up to 4K Ultra HD
-              </p>
-              <p className="text-[10px] sm:text-[11px] text-amber-400/70 leading-tight flex items-center gap-1 flex-wrap mt-0.5">
-                Tap <Maximize className="w-3 h-3 shrink-0" /> Fullscreen, then <Settings2 className="w-3 h-3 shrink-0" /> Settings for the clearest picture
-              </p>
-            </div>
-          </div>
 
           {renderTimelineRow()}
 
