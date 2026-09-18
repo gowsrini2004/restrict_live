@@ -24,7 +24,8 @@ import {
   Search,
   User,
   Shield,
-  Clock
+  Clock,
+  AlertTriangle
 } from 'lucide-react';
 
 interface LiveUserMetric {
@@ -72,6 +73,14 @@ export const AdminDashboardPage: React.FC = () => {
   const [offlineMessage, setOfflineMessage] = useState<string>('The live broadcast is currently offline. Please stay tuned for the next session.');
   const [isTogglingLive, setIsTogglingLive] = useState<boolean>(false);
   const [isTogglingPlayback, setIsTogglingPlayback] = useState<boolean>(false);
+
+  // Emergency Fallback state — "break glass" switch: bypasses login/Q&A/
+  // tab-lock/protected player for every visitor, showing a bare loginless
+  // YouTube embed instead. Enabling it is confirmed via a modal since the
+  // blast radius is total; disabling it isn't (it's the "fix" action).
+  const [isEmergencyFallback, setIsEmergencyFallback] = useState<boolean>(false);
+  const [isTogglingFallback, setIsTogglingFallback] = useState<boolean>(false);
+  const [showFallbackConfirm, setShowFallbackConfirm] = useState<boolean>(false);
 
   // User Management state
   const [rosterUsers, setRosterUsers] = useState<UserRosterItem[]>([]);
@@ -130,6 +139,7 @@ export const AdminDashboardPage: React.FC = () => {
         setStreamTitle(res.data.data.title || '');
         setIsStreamLive(res.data.data.is_live);
         setIsPlaybackMode(!!res.data.data.is_playback_mode);
+        setIsEmergencyFallback(!!res.data.data.is_emergency_fallback);
         if (res.data.data.offline_image_url) setOfflineImageUrl(res.data.data.offline_image_url);
         if (res.data.data.offline_message) setOfflineMessage(res.data.data.offline_message);
       }
@@ -284,6 +294,11 @@ export const AdminDashboardPage: React.FC = () => {
   // broadcast has ended, letting viewers log in and watch the recording
   // back through the same protected player (labeled "Playback", not "Live").
   const handleTogglePlaybackMode = async (targetState?: boolean) => {
+    const nextValue = targetState !== undefined ? targetState : !isPlaybackMode;
+    if (nextValue && isStreamLive) {
+      showError("Stream Is Live", "Playback Mode can only be enabled while the live stream is stopped.");
+      return;
+    }
     try {
       setIsTogglingPlayback(true);
       const res = await streamApiClient.post('/admin/stream/toggle-playback/', {
@@ -301,6 +316,31 @@ export const AdminDashboardPage: React.FC = () => {
       showError("Playback Mode Action Failed", parseErrorMessage(err));
     } finally {
       setIsTogglingPlayback(false);
+    }
+  };
+
+  // "Break glass" toggle — bypasses login/Q&A/tab-lock/protected player for
+  // every visitor. Enabling always comes through the confirm modal (see the
+  // button's onClick), so this itself just performs whatever was confirmed.
+  const handleToggleEmergencyFallback = async (targetState: boolean) => {
+    try {
+      setIsTogglingFallback(true);
+      const res = await streamApiClient.post('/admin/stream/toggle-fallback/', {
+        is_emergency_fallback: targetState,
+      });
+      if (res.data?.success) {
+        setIsEmergencyFallback(res.data.data.is_emergency_fallback);
+        if (res.data.data.is_emergency_fallback) {
+          showWarning("Emergency Fallback Enabled", "Every visitor now sees a bare video embed — no login, Q&A, or protections.");
+        } else {
+          showSuccess("Emergency Fallback Disabled", "The normal app is restored for all visitors.");
+        }
+      }
+    } catch (err) {
+      showError("Emergency Fallback Action Failed", parseErrorMessage(err));
+    } finally {
+      setIsTogglingFallback(false);
+      setShowFallbackConfirm(false);
     }
   };
 
@@ -482,7 +522,8 @@ export const AdminDashboardPage: React.FC = () => {
             </div>
 
             {/* Playback Mode Quick Action Card — for once a broadcast has
-                ended, so attendees can log in and watch the recording back. */}
+                ended, so attendees can log in and watch the recording back.
+                Can only be turned ON while the stream is stopped. */}
             <div className="flex items-center gap-4 bg-slate-950/80 px-4 py-3 rounded-2xl border border-white/10 shrink-0">
               <div className="flex items-center gap-2">
                 <Clock className={`w-3.5 h-3.5 ${isPlaybackMode ? 'text-amber-400' : 'text-slate-600'}`} />
@@ -493,8 +534,9 @@ export const AdminDashboardPage: React.FC = () => {
 
               <button
                 onClick={() => handleTogglePlaybackMode(!isPlaybackMode)}
-                disabled={isTogglingPlayback}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl font-extrabold text-xs shadow-lg transition-all active:scale-95 ${
+                disabled={isTogglingPlayback || (!isPlaybackMode && isStreamLive)}
+                title={!isPlaybackMode && isStreamLive ? 'Stop the live stream first to enable Playback Mode' : undefined}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl font-extrabold text-xs shadow-lg transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 ${
                   isPlaybackMode
                     ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/10'
                     : 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/30'
@@ -502,9 +544,64 @@ export const AdminDashboardPage: React.FC = () => {
               >
                 <Clock className="w-4 h-4" /> {isPlaybackMode ? 'DISABLE PLAYBACK' : 'ENABLE PLAYBACK'}
               </button>
+              {!isPlaybackMode && isStreamLive && (
+                <span className="text-[10px] text-slate-500 max-w-[120px] leading-snug hidden xl:block">
+                  Stop the stream first to enable playback.
+                </span>
+              )}
+            </div>
+
+            {/* Emergency Fallback Quick Action Card — "break glass": bypasses
+                login/Q&A/tab-lock/protected player for every visitor. Enabling
+                requires confirmation given the blast radius; disabling doesn't. */}
+            <div className={`flex items-center gap-4 px-4 py-3 rounded-2xl border shrink-0 ${
+              isEmergencyFallback ? 'bg-red-950/40 border-red-500/40' : 'bg-slate-950/80 border-white/10'
+            }`}>
+              <div className="flex items-center gap-2">
+                <AlertTriangle className={`w-3.5 h-3.5 ${isEmergencyFallback ? 'text-red-400 animate-pulse' : 'text-slate-600'}`} />
+                <span className="text-xs font-bold text-white uppercase tracking-wider">
+                  {isEmergencyFallback ? 'Fallback Active' : 'Fallback Off'}
+                </span>
+              </div>
+
+              {isEmergencyFallback ? (
+                <button
+                  onClick={() => handleToggleEmergencyFallback(false)}
+                  disabled={isTogglingFallback}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-extrabold text-xs shadow-lg shadow-red-600/30 transition-all active:scale-95"
+                >
+                  <AlertTriangle className="w-4 h-4" /> DISABLE FALLBACK
+                </button>
+              ) : (
+                <button
+                  onClick={() => setShowFallbackConfirm(true)}
+                  disabled={isTogglingFallback}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-800 hover:bg-red-950 text-red-400 hover:text-red-300 font-extrabold text-xs border border-red-500/30 transition-all active:scale-95"
+                >
+                  <AlertTriangle className="w-4 h-4" /> EMERGENCY FALLBACK
+                </button>
+              )}
             </div>
           </div>
         </div>
+
+        {/* Persistent warning banner — easy to miss a card in a header row,
+            impossible to miss this, for something with this much blast radius. */}
+        {isEmergencyFallback && (
+          <div className="bg-red-950/60 border border-red-500/40 rounded-2xl px-4 py-3 flex items-center gap-3 animate-fadeIn">
+            <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 animate-pulse" />
+            <p className="text-sm text-red-200 flex-1">
+              <strong className="font-bold">Emergency Fallback is ACTIVE.</strong> Every visitor is seeing a bare video embed with no login, Q&amp;A, or protections. Disable it as soon as the normal app is working again.
+            </p>
+            <button
+              onClick={() => handleToggleEmergencyFallback(false)}
+              disabled={isTogglingFallback}
+              className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-extrabold text-xs shadow-lg shadow-red-600/30 transition-all active:scale-95 shrink-0"
+            >
+              Disable Now
+            </button>
+          </div>
+        )}
 
         {/* Navigation Tabs */}
         <div className="flex items-center gap-2 border-b border-white/10 pb-2 overflow-x-auto">
@@ -1123,6 +1220,17 @@ export const AdminDashboardPage: React.FC = () => {
         isDanger={true}
         onConfirm={handleConfirmDeleteUser}
         onCancel={() => setDeleteModalUser(null)}
+      />
+
+      <ConfirmModal
+        isOpen={showFallbackConfirm}
+        title="Enable Emergency Fallback?"
+        message="This immediately bypasses login, Q&A, tab-lock, and the protected player for EVERY visitor — they'll see nothing but a bare video embed until you disable this again. Only use this if the normal app is genuinely broken."
+        confirmText="Enable Fallback"
+        cancelText="Cancel"
+        isDanger={true}
+        onConfirm={() => handleToggleEmergencyFallback(true)}
+        onCancel={() => setShowFallbackConfirm(false)}
       />
     </div>
   );

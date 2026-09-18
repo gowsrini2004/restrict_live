@@ -5,7 +5,7 @@ from .models import StreamConfig, Question
 class StreamConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = StreamConfig
-        fields = ['id', 'title', 'youtube_url', 'youtube_video_id', 'is_live', 'is_playback_mode', 'offline_image_url', 'offline_message', 'updated_at']
+        fields = ['id', 'title', 'youtube_url', 'youtube_video_id', 'is_live', 'is_playback_mode', 'is_emergency_fallback', 'offline_image_url', 'offline_message', 'updated_at']
         read_only_fields = ['id', 'youtube_video_id', 'updated_at']
 
     def validate_youtube_url(self, value):

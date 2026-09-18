@@ -15,6 +15,14 @@ class StreamConfig(models.Model):
     # offline banner to anyone NOT yet allowed to watch the recording) and
     # only flip this on when the recording is actually ready to share.
     is_playback_mode = models.BooleanField(default=False)
+    # "Break glass" switch — when the normal app (login, Q&A, tab-lock,
+    # protected player) is somehow broken or blocking legitimate viewers,
+    # an admin can flip this to bypass ALL of it: every visitor instantly
+    # sees a bare, loginless YouTube embed instead. Deliberately requires
+    # the backend/DB to be reachable to toggle (it's just a flag here, same
+    # as is_live/is_playback_mode) — this is a fallback for "our own app
+    # logic is broken", not for "the backend itself is down".
+    is_emergency_fallback = models.BooleanField(default=False)
     offline_image_url = models.TextField(
         default="https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=1200&q=80"
     )

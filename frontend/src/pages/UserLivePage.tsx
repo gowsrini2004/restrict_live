@@ -3,7 +3,7 @@ import { ProtectedPlayer } from '../components/ProtectedPlayer';
 import { QnAPanel } from '../components/QnAPanel';
 import { streamApiClient } from '../services/apiClient';
 import { useTabLock } from '../hooks/useTabLock';
-import { AlertOctagon, ArrowRightLeft, Sparkles, Clock } from 'lucide-react';
+import { AlertOctagon, ArrowRightLeft, Sparkles, Clock, MessageSquare } from 'lucide-react';
 
 export const UserLivePage: React.FC = () => {
   const { isTabLocked, forceClaimLock } = useTabLock();
@@ -130,9 +130,29 @@ export const UserLivePage: React.FC = () => {
         {/* Right: Q&A Panel container — needs an explicit height on mobile
             (not h-auto) because QnAPanel itself is `h-full` with an internal
             `flex-1 overflow-y-auto` message list; against an auto-height
-            ancestor that h-full resolves to 0, collapsing the whole panel. */}
+            ancestor that h-full resolves to 0, collapsing the whole panel.
+            Q&A only works while actually live — not during playback of a
+            past recording, and not while fully offline — so the panel
+            itself is swapped for an explanatory placeholder the rest of
+            the time, keeping the same footprint either way. */}
         <div className="w-full lg:w-[360px] xl:w-[400px] shrink-0 flex flex-col border-t border-white/8 lg:border-t-0 lg:border-l lg:border-white/8 h-[70vh] lg:h-full overflow-hidden">
-          <QnAPanel />
+          {streamConfig.is_live ? (
+            <QnAPanel />
+          ) : (
+            <div className="qna-panel flex flex-col items-center justify-center h-full max-h-full bg-slate-900 text-center px-6 space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-slate-800 border border-white/10 text-slate-500 flex items-center justify-center">
+                <MessageSquare className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-300">Q&amp;A Unavailable</h3>
+                <p className="text-slate-500 text-xs mt-1 leading-relaxed">
+                  {streamConfig.is_playback_mode
+                    ? "Q&A is only open during the live broadcast, not while watching the recording back."
+                    : "Q&A opens once the live broadcast starts."}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
       </div>

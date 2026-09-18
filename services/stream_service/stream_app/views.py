@@ -47,7 +47,22 @@ def update_stream_config(request):
     if 'is_live' in serializer.validated_data:
         config.is_live = serializer.validated_data['is_live']
     if 'is_playback_mode' in serializer.validated_data:
-        config.is_playback_mode = serializer.validated_data['is_playback_mode']
+        new_playback_mode = serializer.validated_data['is_playback_mode']
+        # Same mutual-exclusion rule as toggle_playback_mode — checked
+        # against config.is_live AFTER any is_live change above is applied,
+        # so setting both in the same request is evaluated consistently.
+        if new_playback_mode and config.is_live:
+            return Response({
+                "success": False,
+                "error": {
+                    "code": "STREAM_IS_LIVE",
+                    "message": "Playback Mode can only be enabled while the live stream is stopped.",
+                    "details": {}
+                }
+            }, status=status.HTTP_409_CONFLICT)
+        config.is_playback_mode = new_playback_mode
+    if 'is_emergency_fallback' in serializer.validated_data:
+        config.is_emergency_fallback = serializer.validated_data['is_emergency_fallback']
     if 'offline_image_url' in serializer.validated_data:
         config.offline_image_url = serializer.validated_data['offline_image_url']
     if 'offline_message' in serializer.validated_data:
@@ -89,15 +104,53 @@ def toggle_playback_mode(request):
     Admin endpoint to enable/disable Playback Mode with a single click —
     intended for once a broadcast has ended, letting viewers log in and
     watch the recording back through the same protected player.
+    Can only be turned ON while the live broadcast is stopped (is_live is
+    False) — Playback Mode and a running live broadcast are mutually
+    exclusive, so this can't be flipped on out from under an active stream.
     """
     config = StreamConfig.objects.first()
     if not config:
         config = StreamConfig.objects.create()
 
-    if 'is_playback_mode' in request.data:
-        config.is_playback_mode = bool(request.data['is_playback_mode'])
+    new_value = bool(request.data['is_playback_mode']) if 'is_playback_mode' in request.data else not config.is_playback_mode
+
+    if new_value and config.is_live:
+        return Response({
+            "success": False,
+            "error": {
+                "code": "STREAM_IS_LIVE",
+                "message": "Playback Mode can only be enabled while the live stream is stopped.",
+                "details": {}
+            }
+        }, status=status.HTTP_409_CONFLICT)
+
+    config.is_playback_mode = new_value
+    config.save()
+
+    return Response({
+        "success": True,
+        "data": StreamConfigSerializer(config).data
+    })
+
+@api_view(['POST'])
+@require_admin
+def toggle_emergency_fallback(request):
+    """
+    "Break glass" admin endpoint — when the normal app is broken/blocking
+    viewers for some reason, this bypasses ALL of it (login, Q&A, tab-lock,
+    protected player) so every visitor instantly sees a bare, loginless
+    YouTube embed instead. Still requires the backend/DB to be reachable to
+    flip (it's just a flag) — this covers "our own app logic is broken",
+    not "the backend itself is unreachable".
+    """
+    config = StreamConfig.objects.first()
+    if not config:
+        config = StreamConfig.objects.create()
+
+    if 'is_emergency_fallback' in request.data:
+        config.is_emergency_fallback = bool(request.data['is_emergency_fallback'])
     else:
-        config.is_playback_mode = not config.is_playback_mode
+        config.is_emergency_fallback = not config.is_emergency_fallback
 
     config.save()
 
