@@ -881,7 +881,7 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
                   4K
                 </span>
                 <span className="text-[10px] sm:text-[11px] text-amber-300 font-semibold truncate">
-                  Fullscreen + Settings for max quality
+                  Go to fullscreen and click the gear icon for settings
                 </span>
               </div>
             </div>
