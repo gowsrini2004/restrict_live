@@ -49,14 +49,18 @@ const NATIVE_GEAR_ZONE_WIDTH_PX = 56;
 // Width deliberately left BLOCKED at the very right edge (YouTube's own
 // logo/watermark) — kept covered on purpose so it can't lead a viewer back
 // toward YouTube's own chrome.
-const NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX = 48;
+const NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX = 10;
 
 /* Settings-menu popup window — percentages of the video's own box (not
  * fixed pixels) so it scales with player size instead of breaking on
- * differently-sized embeds. Generously sized since the panel's height
- * varies with how many quality tiers are actually available. */
-const NATIVE_MENU_ZONE_TOP_PERCENT = 40;
-const NATIVE_MENU_ZONE_SIDE_PERCENT = 28; // left AND right margin — window width = 100 - 2×this
+ * differently-sized embeds. YouTube's popup is roughly FIXED pixel size
+ * internally, so as a % of a small non-fullscreen player it covers a much
+ * bigger share of the frame than it does in fullscreen — hence two separate
+ * tunings rather than one shared number. Edit these directly to tune. */
+const NATIVE_MENU_ZONE_TOP_PERCENT_FULLSCREEN = 40;
+const NATIVE_MENU_ZONE_SIDE_PERCENT_FULLSCREEN = 28; // left AND right margin — window width = 100 - 2×this
+const NATIVE_MENU_ZONE_TOP_PERCENT_NORMAL = 55;
+const NATIVE_MENU_ZONE_SIDE_PERCENT_NORMAL = 35;
 
 const formatTime = (totalSeconds: number): string => {
   if (!isFinite(totalSeconds) || totalSeconds < 0) return '0:00';
@@ -110,31 +114,45 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
   isLive = true,
   isPlaybackMode = false,
   offlineImageUrl = 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=1200&q=80',
-  offlineMessage  = 'The live broadcast is currently offline. Please stay tuned for the next session.',
+  offlineMessage = 'The live broadcast is currently offline. Please stay tuned for the next session.',
 }) => {
   const { showWarning } = useToast();
 
-  const containerRef  = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const playerMountRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
   const iframeElRef = useRef<HTMLIFrameElement | null>(null);
   const aspectVideoRef = useRef<HTMLDivElement>(null);
 
-  const [isPlaying,       setIsPlaying]       = useState(true);
-  const [isMuted,         setIsMuted]         = useState(false);
-  const [volume,          setVolume]          = useState(80);
-  const [isFullscreen,    setIsFullscreen]    = useState(false);
+  const [isPlaying, setIsPlaying] = useState(true);
+  const [isMuted, setIsMuted] = useState(false);
+  const [volume, setVolume] = useState(80);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Timeline / DVR-seek state
-  const [currentTime,   setCurrentTime]   = useState(0);
-  const [duration,      setDuration]      = useState(0);
-  const [isAtLiveEdge,  setIsAtLiveEdge]  = useState(true);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [isAtLiveEdge, setIsAtLiveEdge] = useState(true);
   // Earliest point we've confirmed the stream can actually seek back to —
   // discovered dynamically the first time a rewind request gets rejected.
-  const [minSeekable,   setMinSeekable]   = useState(0);
+  const [minSeekable, setMinSeekable] = useState(0);
   // Fullscreen auto-hide: controls fade out after inactivity while playing,
   // and reappear (in place — nothing is unmounted) on any mouse/touch activity.
   const [controlsVisible, setControlsVisible] = useState(true);
+  // True while the browser's focus is actually INSIDE the YouTube iframe —
+  // i.e. the viewer just clicked the gear or something in its menu. We can't
+  // see what's happening inside a cross-origin iframe directly, but a click
+  // into it does move the parent document's focus there, which we CAN
+  // detect (window 'blur' + document.activeElement === the iframe). While
+  // true, the click-catcher below opens up the WHOLE video instead of just
+  // the two small windows, so a click anywhere — including outside the
+  // menu, which YouTube's own UI treats as "dismiss" — actually reaches the
+  // iframe instead of being swallowed by our overlay (which is what made
+  // the menu feel "stuck": your dismiss-click was hitting our div, not
+  // YouTube's). The moment focus leaves the iframe again (you click
+  // anything in our own page, e.g. the control bar), this snaps back to
+  // false and normal protection resumes.
+  const [nativeFocusActive, setNativeFocusActive] = useState(false);
   // Refs mirroring latest state so the postMessage listener (registered once)
   // always reads current values instead of a stale closure.
   const isMutedRef = useRef(isMuted);
@@ -192,6 +210,38 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
     return () => {
       document.removeEventListener('fullscreenchange', onChange);
       document.removeEventListener('webkitfullscreenchange', onChange);
+    };
+  }, []);
+
+  /* Detect focus moving into/out of the YouTube iframe — see
+   * nativeFocusActive's declaration above for why this is the only signal
+   * we actually have for "the viewer is interacting with YouTube's native
+   * menu" from a cross-origin iframe. `blur` fires on window the instant
+   * focus leaves the top-level document; checking activeElement right
+   * after tells us WHERE it went. `focusin` bubbles (unlike plain `focus`),
+   * so it reliably fires the moment focus lands on anything in OUR page
+   * again (a button, the body, anywhere) — that's the "menu's done, close
+   * the window back down" signal. */
+  useEffect(() => {
+    const handleWindowBlur = () => {
+      // activeElement hasn't updated yet at the exact moment 'blur' fires
+      // in some browsers — defer one tick.
+      setTimeout(() => {
+        if (document.activeElement === iframeElRef.current) {
+          setNativeFocusActive(true);
+        }
+      }, 0);
+    };
+    const handleFocusIn = (e: FocusEvent) => {
+      if (e.target !== iframeElRef.current) {
+        setNativeFocusActive(false);
+      }
+    };
+    window.addEventListener('blur', handleWindowBlur);
+    document.addEventListener('focusin', handleFocusIn);
+    return () => {
+      window.removeEventListener('blur', handleWindowBlur);
+      document.removeEventListener('focusin', handleFocusIn);
     };
   }, []);
 
@@ -388,19 +438,19 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
 
   const togglePlay = () => {
     if (isPlaying) { playerRef.current?.pauseVideo(); setIsPlaying(false); }
-    else           { playerRef.current?.playVideo();  setIsPlaying(true);  }
+    else { playerRef.current?.playVideo(); setIsPlaying(true); }
   };
 
   const toggleMute = () => {
     if (isMuted) { playerRef.current?.unMute(); playerRef.current?.setVolume(volume); setIsMuted(false); }
-    else         { playerRef.current?.mute();                                          setIsMuted(true);  }
+    else { playerRef.current?.mute(); setIsMuted(true); }
   };
 
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = Number(e.target.value);
     setVolume(v);
-    if (v === 0) { playerRef.current?.mute();   setIsMuted(true);  }
-    else         { playerRef.current?.unMute(); playerRef.current?.setVolume(v); setIsMuted(false); }
+    if (v === 0) { playerRef.current?.mute(); setIsMuted(true); }
+    else { playerRef.current?.unMute(); playerRef.current?.setVolume(v); setIsMuted(false); }
   };
 
   /* Mark scrubbing the instant the user grabs the thumb/track — before the
@@ -583,12 +633,17 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
     );
   };
 
+  // YouTube's settings-menu popup is roughly fixed-pixel internally, so it
+  // covers a much bigger share of a small non-fullscreen player than it
+  // does in fullscreen — pick the matching tuning for the current mode.
+  const nativeMenuZoneTopPercent = isFullscreen ? NATIVE_MENU_ZONE_TOP_PERCENT_FULLSCREEN : NATIVE_MENU_ZONE_TOP_PERCENT_NORMAL;
+  const nativeMenuZoneSidePercent = isFullscreen ? NATIVE_MENU_ZONE_SIDE_PERCENT_FULLSCREEN : NATIVE_MENU_ZONE_SIDE_PERCENT_NORMAL;
+
   return (
     <div
       ref={containerRef}
-      className={`protected-player-container relative bg-black select-none flex flex-col justify-between overflow-hidden ${
-        isFullscreen ? 'w-screen h-screen fixed inset-0 z-50' : 'w-full h-full min-h-[240px]'
-      } ${isFullscreen && !controlsVisible ? 'cursor-none' : ''}`}
+      className={`protected-player-container relative bg-black select-none flex flex-col justify-between overflow-hidden ${isFullscreen ? 'w-screen h-screen fixed inset-0 z-50' : 'w-full h-full min-h-[240px]'
+        } ${isFullscreen && !controlsVisible ? 'cursor-none' : ''}`}
       onContextMenu={(e) => e.preventDefault()}
       onMouseMove={handleControlsActivity}
       onTouchStart={handleControlsActivity}
@@ -617,42 +672,44 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
           <div ref={playerMountRef} className="absolute inset-0 w-full h-full" />
 
           {isLive && (
-          <>
-            {/* Top overlay — hides YouTube logo/title. "Protected" badge
+            <>
+              {/* Top overlay — hides YouTube logo/title. "Protected" badge
                 lives on the LEFT now (was right), since the right side of
                 this same row is where YouTube's real settings gear renders
                 — see the native-controls hot zone + hint badge below. The
                 gradient itself stops short of that zone so the gear isn't
                 visually darkened. Fades out with the rest of the chrome on
-                fullscreen inactivity. */}
-            <div className={`absolute top-0 left-0 h-16 bg-gradient-to-b from-black/85 to-transparent z-20 flex items-center gap-3 px-3 sm:px-4 pointer-events-auto transition-opacity duration-300 ${
-              controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
-            }`}
-              style={{ right: NATIVE_GEAR_ZONE_WIDTH_PX + NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX }}
-            >
-              {!isFullscreen && (
-                <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-black/50 px-2.5 py-1 rounded-full border border-amber-500/25 backdrop-blur">
-                  <ShieldAlert className="w-3 h-3" /> Protected
-                </span>
-              )}
-            </div>
+                fullscreen inactivity, and stops blocking clicks while
+                nativeFocusActive so a dismiss-click landing here (top-left)
+                still reaches the iframe instead of getting swallowed. */}
+              <div className={`absolute top-0 left-0 h-16 bg-gradient-to-b from-black/85 to-transparent z-20 flex items-center gap-3 px-3 sm:px-4 transition-opacity duration-300 ${nativeFocusActive ? 'pointer-events-none' : 'pointer-events-auto'
+                } ${controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                }`}
+                style={{ right: NATIVE_GEAR_ZONE_WIDTH_PX + NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX }}
+              >
+                {!isFullscreen && (
+                  <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-black/50 px-2.5 py-1 rounded-full border border-amber-500/25 backdrop-blur">
+                    <ShieldAlert className="w-3 h-3" /> Protected
+                  </span>
+                )}
+              </div>
 
-            {/* Small in-video hint, pointer-events-none so it never blocks
+              {/* Small in-video hint, pointer-events-none so it never blocks
                 the gear window right next to it. */}
-            <div className={`absolute top-2 sm:top-3 z-20 pointer-events-none transition-opacity duration-300 ${
-              controlsVisible ? 'opacity-100' : 'opacity-0'
-            }`}
-              style={{ right: NATIVE_GEAR_ZONE_WIDTH_PX + NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX + 8 }}
-            >
-              <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-black/50 px-2.5 py-1 rounded-full border border-amber-500/25 backdrop-blur whitespace-nowrap">
-                <Settings2 className="w-3 h-3" /> Click ⚙ for Quality/Speed
-              </span>
-            </div>
+              <div className={`absolute top-2 sm:top-3 z-20 pointer-events-none transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0'
+                }`}
+                style={{ right: NATIVE_GEAR_ZONE_WIDTH_PX + NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX + 8 }}
+              >
+                <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-black/50 px-2.5 py-1 rounded-full border border-amber-500/25 backdrop-blur whitespace-nowrap">
+                  <Settings2 className="w-3 h-3" />
+                  {nativeFocusActive ? 'Click outside menu to close' : 'Click ⚙ for Quality/Speed'}
+                </span>
+              </div>
 
-            {/* Bottom shield — hides YouTube's own seek bar/branding. */}
-            <div className="absolute bottom-0 left-0 right-0 h-14 bg-gradient-to-t from-black to-transparent z-20 pointer-events-none" />
+              {/* Bottom shield — hides YouTube's own seek bar/branding. */}
+              <div className="absolute bottom-0 left-0 right-0 h-14 bg-gradient-to-t from-black to-transparent z-20 pointer-events-none" />
 
-            {/* Click-to-play catcher — covers the ENTIRE video except two
+              {/* Click-to-play catcher — covers the ENTIRE video except two
                 small, ALWAYS-open windows: the settings-gear icon itself
                 (top-right) and the area its popup menu renders into
                 (center-lower, see NATIVE_MENU_ZONE_* above). Clicks in
@@ -665,106 +722,121 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
                 inside the (always-open) menu window, that click just lands
                 on the plain video there — YouTube's own native click-to-
                 pause fires instead of our custom togglePlay, which is a
-                harmless equivalent, not a gap in protection. */}
-            <div
-              className="absolute top-0 left-0 z-10 cursor-pointer"
-              style={{ height: NATIVE_GEAR_ZONE_HEIGHT_PX, right: NATIVE_GEAR_ZONE_WIDTH_PX + NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX }}
-              onClick={togglePlay}
-            />
-            <div
-              className="absolute top-0 right-0 z-10 cursor-pointer"
-              style={{ height: NATIVE_GEAR_ZONE_HEIGHT_PX, width: NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX }}
-              onClick={togglePlay}
-            />
-            <div
-              className="absolute left-0 right-0 z-10 cursor-pointer"
-              style={{ top: NATIVE_GEAR_ZONE_HEIGHT_PX, height: `calc(${NATIVE_MENU_ZONE_TOP_PERCENT}% - ${NATIVE_GEAR_ZONE_HEIGHT_PX}px)` }}
-              onClick={togglePlay}
-            />
-            <div
-              className="absolute bottom-0 left-0 z-10 cursor-pointer"
-              style={{ top: `${NATIVE_MENU_ZONE_TOP_PERCENT}%`, width: `${NATIVE_MENU_ZONE_SIDE_PERCENT}%` }}
-              onClick={togglePlay}
-            />
-            <div
-              className="absolute bottom-0 right-0 z-10 cursor-pointer"
-              style={{ top: `${NATIVE_MENU_ZONE_TOP_PERCENT}%`, width: `${NATIVE_MENU_ZONE_SIDE_PERCENT}%` }}
-              onClick={togglePlay}
-            />
+                harmless equivalent, not a gap in protection.
 
-            {/* Fullscreen bottom overlay — timeline, play/pause, volume &
+                While nativeFocusActive is true (the viewer's focus is
+                actually inside the iframe — see that state's declaration),
+                these rectangles are skipped entirely instead of just the
+                two windows. Reason: once the menu is open, a "click
+                outside to dismiss" is exactly the kind of click that lands
+                OUTSIDE both small windows — if we kept blocking there, that
+                dismiss-click would hit our overlay instead of YouTube's,
+                and the menu would feel stuck open forever (exactly the bug
+                reported). Opening the whole video only while focus is
+                confirmed to be in the iframe keeps this scoped to genuine
+                menu interaction, not a standing exposure. */}
+              {!nativeFocusActive && (
+                <>
+                  <div
+                    className="absolute top-0 left-0 z-10 cursor-pointer"
+                    style={{ height: NATIVE_GEAR_ZONE_HEIGHT_PX, right: NATIVE_GEAR_ZONE_WIDTH_PX + NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX }}
+                    onClick={togglePlay}
+                  />
+                  <div
+                    className="absolute top-0 right-0 z-10 cursor-pointer"
+                    style={{ height: NATIVE_GEAR_ZONE_HEIGHT_PX, width: NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX }}
+                    onClick={togglePlay}
+                  />
+                  <div
+                    className="absolute left-0 right-0 z-10 cursor-pointer"
+                    style={{ top: NATIVE_GEAR_ZONE_HEIGHT_PX, height: `calc(${nativeMenuZoneTopPercent}% - ${NATIVE_GEAR_ZONE_HEIGHT_PX}px)` }}
+                    onClick={togglePlay}
+                  />
+                  <div
+                    className="absolute bottom-0 left-0 z-10 cursor-pointer"
+                    style={{ top: `${nativeMenuZoneTopPercent}%`, width: `${nativeMenuZoneSidePercent}%` }}
+                    onClick={togglePlay}
+                  />
+                  <div
+                    className="absolute bottom-0 right-0 z-10 cursor-pointer"
+                    style={{ top: `${nativeMenuZoneTopPercent}%`, width: `${nativeMenuZoneSidePercent}%` }}
+                    onClick={togglePlay}
+                  />
+                </>
+              )}
+
+              {/* Fullscreen bottom overlay — timeline, play/pause, volume &
                 exit-fullscreen; fades out with the rest of the chrome on
                 inactivity. Quality/speed are reached via the native window
                 above, not shown here — YouTube's own control bar is visible
                 at the bottom of the video itself in fullscreen too. */}
-            {isFullscreen && (
-              <div className={`absolute bottom-0 left-0 right-0 z-30 bg-gradient-to-t from-black/90 via-black/60 to-transparent px-2 sm:px-4 pt-10 pb-2 sm:pb-3 space-y-1.5 sm:space-y-2.5 pointer-events-auto transition-opacity duration-300 ${
-                controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
-              }`}>
-                {renderTimelineRow()}
-                <div className="flex items-center justify-between gap-1.5 sm:gap-3">
-                  <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-                    <button
-                      onClick={togglePlay}
-                      className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/30 transition-all active:scale-90 shrink-0"
-                      title={isPlaying ? 'Pause' : 'Play'}
-                    >
-                      {isPlaying
-                        ? <Pause className="w-4 h-4" />
-                        : <Play  className="w-4 h-4 fill-current" />
-                      }
-                    </button>
-
-                    <div className="flex items-center gap-1 sm:gap-2 bg-slate-900/90 border border-white/10 px-1.5 sm:px-2.5 py-1 sm:py-1.5 rounded-xl">
+              {isFullscreen && (
+                <div className={`absolute bottom-0 left-0 right-0 z-30 bg-gradient-to-t from-black/90 via-black/60 to-transparent px-2 sm:px-4 pt-10 pb-2 sm:pb-3 space-y-1.5 sm:space-y-2.5 pointer-events-auto transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                  }`}>
+                  {renderTimelineRow()}
+                  <div className="flex items-center justify-between gap-1.5 sm:gap-3">
+                    <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
                       <button
-                        onClick={toggleMute}
-                        className="shrink-0 text-slate-400 hover:text-amber-400 transition-colors"
-                        title={isMuted ? 'Unmute' : 'Mute'}
+                        onClick={togglePlay}
+                        className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/30 transition-all active:scale-90 shrink-0"
+                        title={isPlaying ? 'Pause' : 'Play'}
                       >
-                        {isMuted || volume === 0
-                          ? <VolumeX className="w-4 h-4 text-red-400" />
-                          : <Volume2 className="w-4 h-4" />
+                        {isPlaying
+                          ? <Pause className="w-4 h-4" />
+                          : <Play className="w-4 h-4 fill-current" />
                         }
                       </button>
 
-                      <div className="w-10 sm:w-24 flex items-center">
-                        <input
-                          type="range"
-                          min={0}
-                          max={100}
-                          value={isMuted ? 0 : volume}
-                          onChange={handleVolumeChange}
-                          className="vol-slider w-full"
-                          style={sliderTrackStyle(volume)}
-                        />
-                      </div>
+                      <div className="flex items-center gap-1 sm:gap-2 bg-slate-900/90 border border-white/10 px-1.5 sm:px-2.5 py-1 sm:py-1.5 rounded-xl">
+                        <button
+                          onClick={toggleMute}
+                          className="shrink-0 text-slate-400 hover:text-amber-400 transition-colors"
+                          title={isMuted ? 'Unmute' : 'Mute'}
+                        >
+                          {isMuted || volume === 0
+                            ? <VolumeX className="w-4 h-4 text-red-400" />
+                            : <Volume2 className="w-4 h-4" />
+                          }
+                        </button>
 
-                      <span className="hidden sm:inline w-6 text-right text-[10px] text-slate-400 font-mono shrink-0 tabular-nums">
-                        {isMuted ? 0 : volume}%
+                        <div className="w-10 sm:w-24 flex items-center">
+                          <input
+                            type="range"
+                            min={0}
+                            max={100}
+                            value={isMuted ? 0 : volume}
+                            onChange={handleVolumeChange}
+                            className="vol-slider w-full"
+                            style={sliderTrackStyle(volume)}
+                          />
+                        </div>
+
+                        <span className="hidden sm:inline w-6 text-right text-[10px] text-slate-400 font-mono shrink-0 tabular-nums">
+                          {isMuted ? 0 : volume}%
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                      <span
+                        className="hidden sm:flex h-8 sm:h-9 px-2 sm:px-3 rounded-xl items-center gap-1 sm:gap-1.5 bg-slate-900 text-slate-400 border border-white/10 text-[10px] sm:text-xs font-semibold shrink-0"
+                        title="Quality and playback speed are set from YouTube's own settings icon, in the top-right corner of the video."
+                      >
+                        <Settings2 className="w-3.5 h-3.5 text-amber-400" />
+                        Quality/Speed ↗
                       </span>
+                      <button
+                        onClick={toggleFullscreen}
+                        className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-white/10 transition-all shrink-0"
+                        title="Exit Fullscreen"
+                      >
+                        <Minimize2 className="w-4 h-4 text-amber-400" />
+                      </button>
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-                    <span
-                      className="hidden sm:flex h-8 sm:h-9 px-2 sm:px-3 rounded-xl items-center gap-1 sm:gap-1.5 bg-slate-900 text-slate-400 border border-white/10 text-[10px] sm:text-xs font-semibold shrink-0"
-                      title="Quality and playback speed are set from YouTube's own settings icon, in the top-right corner of the video."
-                    >
-                      <Settings2 className="w-3.5 h-3.5 text-amber-400" />
-                      Quality/Speed ↗
-                    </span>
-                    <button
-                      onClick={toggleFullscreen}
-                      className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-white/10 transition-all shrink-0"
-                      title="Exit Fullscreen"
-                    >
-                      <Minimize2 className="w-4 h-4 text-amber-400" />
-                    </button>
-                  </div>
                 </div>
-              </div>
-            )}
-          </>
+              )}
+            </>
           )}
         </div>
 
@@ -802,89 +874,89 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
       {isLive && !isFullscreen && (
         <div className="bg-slate-950 border-t border-white/10 px-2 sm:px-4 py-2 sm:py-2.5 space-y-1.5 sm:space-y-2 shrink-0">
 
-        {renderTimelineRow()}
+          {renderTimelineRow()}
 
-        <div className="flex items-center justify-between gap-1.5 sm:gap-3">
+          <div className="flex items-center justify-between gap-1.5 sm:gap-3">
 
-          {/* Left group: Play/Pause & Compact Volume Slider */}
-          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-            {/* Play / Pause */}
-            <button
-              onClick={togglePlay}
-              className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/30 transition-all active:scale-90 shrink-0"
-              title={isPlaying ? 'Pause' : 'Play'}
-            >
-              {isPlaying
-                ? <Pause className="w-4 h-4" />
-                : <Play  className="w-4 h-4 fill-current" />
-              }
-            </button>
-
-            {/* Compact Volume Pill */}
-            <div className="flex items-center gap-1 sm:gap-2 bg-slate-900/90 border border-white/10 px-1.5 sm:px-2.5 py-1 sm:py-1.5 rounded-xl">
+            {/* Left group: Play/Pause & Compact Volume Slider */}
+            <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+              {/* Play / Pause */}
               <button
-                onClick={toggleMute}
-                className="shrink-0 text-slate-400 hover:text-amber-400 transition-colors"
-                title={isMuted ? 'Unmute' : 'Mute'}
+                onClick={togglePlay}
+                className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/30 transition-all active:scale-90 shrink-0"
+                title={isPlaying ? 'Pause' : 'Play'}
               >
-                {isMuted || volume === 0
-                  ? <VolumeX className="w-4 h-4 text-red-400" />
-                  : <Volume2 className="w-4 h-4" />
+                {isPlaying
+                  ? <Pause className="w-4 h-4" />
+                  : <Play className="w-4 h-4 fill-current" />
                 }
               </button>
 
-              <div className="w-10 sm:w-24 flex items-center">
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  value={isMuted ? 0 : volume}
-                  onChange={handleVolumeChange}
-                  className="vol-slider w-full"
-                  style={sliderTrackStyle(volume)}
-                />
-              </div>
+              {/* Compact Volume Pill */}
+              <div className="flex items-center gap-1 sm:gap-2 bg-slate-900/90 border border-white/10 px-1.5 sm:px-2.5 py-1 sm:py-1.5 rounded-xl">
+                <button
+                  onClick={toggleMute}
+                  className="shrink-0 text-slate-400 hover:text-amber-400 transition-colors"
+                  title={isMuted ? 'Unmute' : 'Mute'}
+                >
+                  {isMuted || volume === 0
+                    ? <VolumeX className="w-4 h-4 text-red-400" />
+                    : <Volume2 className="w-4 h-4" />
+                  }
+                </button>
 
-              <span className="hidden sm:inline w-6 text-right text-[10px] text-slate-400 font-mono shrink-0 tabular-nums">
-                {isMuted ? 0 : volume}%
+                <div className="w-10 sm:w-24 flex items-center">
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={isMuted ? 0 : volume}
+                    onChange={handleVolumeChange}
+                    className="vol-slider w-full"
+                    style={sliderTrackStyle(volume)}
+                  />
+                </div>
+
+                <span className="hidden sm:inline w-6 text-right text-[10px] text-slate-400 font-mono shrink-0 tabular-nums">
+                  {isMuted ? 0 : volume}%
+                </span>
+              </div>
+            </div>
+
+            {/* Center stream title indicator */}
+            <div className="hidden sm:flex flex-1 min-w-0 items-center justify-center px-2">
+              <span className="text-xs font-semibold text-slate-400 truncate max-w-[240px]">
+                {title}
               </span>
             </div>
-          </div>
 
-          {/* Center stream title indicator */}
-          <div className="hidden sm:flex flex-1 min-w-0 items-center justify-center px-2">
-            <span className="text-xs font-semibold text-slate-400 truncate max-w-[240px]">
-              {title}
-            </span>
-          </div>
-
-          {/* Right group: native-quality hint & Fullscreen. Quality/speed
+            {/* Right group: native-quality hint & Fullscreen. Quality/speed
               live in YouTube's own settings gear (top-right corner of the
               video), always click-through — see the click-catcher comment
               in the video area above. */}
-          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-            <span
-              className="hidden sm:flex h-8 sm:h-9 px-2 sm:px-3 rounded-xl items-center gap-1 sm:gap-1.5 bg-slate-900 text-slate-400 border border-white/10 text-[10px] sm:text-xs font-semibold shrink-0"
-              title="Quality and playback speed are set from YouTube's own settings icon, in the top-right corner of the video."
-            >
-              <Settings2 className="w-3.5 h-3.5 text-amber-400" />
-              Quality/Speed ↗
-            </span>
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+              <span
+                className="hidden sm:flex h-8 sm:h-9 px-2 sm:px-3 rounded-xl items-center gap-1 sm:gap-1.5 bg-slate-900 text-slate-400 border border-white/10 text-[10px] sm:text-xs font-semibold shrink-0"
+                title="Quality and playback speed are set from YouTube's own settings icon, in the top-right corner of the video."
+              >
+                <Settings2 className="w-3.5 h-3.5 text-amber-400" />
+                Quality/Speed ↗
+              </span>
 
-            {/* Fullscreen */}
-            <button
-              onClick={toggleFullscreen}
-              className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-white/10 transition-all shrink-0"
-              title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-            >
-              {isFullscreen
-                ? <Minimize2 className="w-4 h-4 text-amber-400" />
-                : <Maximize  className="w-4 h-4" />
-              }
-            </button>
+              {/* Fullscreen */}
+              <button
+                onClick={toggleFullscreen}
+                className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-white/10 transition-all shrink-0"
+                title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+              >
+                {isFullscreen
+                  ? <Minimize2 className="w-4 h-4 text-amber-400" />
+                  : <Maximize className="w-4 h-4" />
+                }
+              </button>
+            </div>
+
           </div>
-
-        </div>
         </div>
       )}
     </div>
