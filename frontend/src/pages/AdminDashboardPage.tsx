@@ -276,9 +276,18 @@ export const AdminDashboardPage: React.FC = () => {
         is_live: targetState !== undefined ? targetState : !isStreamLive,
       });
       if (res.data?.success) {
+        const wasPlaybackOn = isPlaybackMode;
         setIsStreamLive(res.data.data.is_live);
+        // Going live always turns Playback Mode back off server-side (the
+        // two are mutually exclusive) — mirror that here too.
+        setIsPlaybackMode(res.data.data.is_playback_mode);
         if (res.data.data.is_live) {
-          showSuccess("Broadcasting Live", "The stream is now LIVE for all attendees.");
+          showSuccess(
+            "Broadcasting Live",
+            wasPlaybackOn
+              ? "The stream is now LIVE for all attendees. Playback Mode was automatically disabled."
+              : "The stream is now LIVE for all attendees."
+          );
         } else {
           showWarning("Stream Offline", "The stream has stopped. Attendees now see the offline banner.");
         }
@@ -471,8 +480,10 @@ export const AdminDashboardPage: React.FC = () => {
   return (
     <div className="min-h-[calc(100vh-65px)] bg-slate-950 p-4 sm:p-6 md:p-8">
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header Title Bar */}
-        <div className="bg-slate-900/90 border border-white/10 rounded-2xl p-6 shadow-2xl backdrop-blur-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+        {/* Header Title Bar — title/login on its own line, quick-action
+            cards always on the line below (never crammed side-by-side,
+            which was overflowing the container at wide/desktop widths). */}
+        <div className="bg-slate-900/90 border border-white/10 rounded-2xl p-6 shadow-2xl backdrop-blur-xl flex flex-col gap-4">
           <div>
             <h2 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2.5">
               <span>Admin Control Center</span>
@@ -491,8 +502,8 @@ export const AdminDashboardPage: React.FC = () => {
             </p>
           </div>
 
-          {/* Quick Action Cards: Start/Stop Stream & Playback Mode */}
-          <div className="flex flex-wrap items-center gap-3 shrink-0">
+          {/* Quick Action Cards: Start/Stop Stream, Playback Mode & Emergency Fallback */}
+          <div className="flex flex-wrap items-center gap-3">
             {/* Start / Stop Stream Quick Action Card */}
             <div className="flex items-center gap-4 bg-slate-950/80 px-4 py-3 rounded-2xl border border-white/10 shrink-0">
               <div className="flex items-center gap-2">
@@ -544,11 +555,6 @@ export const AdminDashboardPage: React.FC = () => {
               >
                 <Clock className="w-4 h-4" /> {isPlaybackMode ? 'DISABLE PLAYBACK' : 'ENABLE PLAYBACK'}
               </button>
-              {!isPlaybackMode && isStreamLive && (
-                <span className="text-[10px] text-slate-500 max-w-[120px] leading-snug hidden xl:block">
-                  Stop the stream first to enable playback.
-                </span>
-              )}
             </div>
 
             {/* Emergency Fallback Quick Action Card — "break glass": bypasses

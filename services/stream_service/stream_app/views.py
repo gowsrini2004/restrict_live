@@ -46,6 +46,8 @@ def update_stream_config(request):
         config.title = serializer.validated_data['title']
     if 'is_live' in serializer.validated_data:
         config.is_live = serializer.validated_data['is_live']
+        if config.is_live:
+            config.is_playback_mode = False
     if 'is_playback_mode' in serializer.validated_data:
         new_playback_mode = serializer.validated_data['is_playback_mode']
         # Same mutual-exclusion rule as toggle_playback_mode — checked
@@ -80,6 +82,10 @@ def update_stream_config(request):
 def toggle_live_status(request):
     """
     Admin endpoint to start or stop live broadcast with a single click.
+    Going live always turns Playback Mode back off — the two are mutually
+    exclusive (Playback Mode can only be turned on while stopped, see
+    toggle_playback_mode), so starting a fresh broadcast should never leave
+    viewers stuck seeing the old recording's Playback labeling/DVR behavior.
     """
     config = StreamConfig.objects.first()
     if not config:
@@ -89,6 +95,9 @@ def toggle_live_status(request):
         config.is_live = bool(request.data['is_live'])
     else:
         config.is_live = not config.is_live
+
+    if config.is_live:
+        config.is_playback_mode = False
 
     config.save()
 
