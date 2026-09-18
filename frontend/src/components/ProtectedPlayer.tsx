@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize2,
-  ShieldAlert, Radio, Clock, SkipForward, Settings2,
+  ShieldAlert, Radio, Clock, SkipForward, Settings2, Sparkles,
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 
@@ -823,6 +823,19 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
       {isLive && !isFullscreen && (
         <div className="bg-slate-950 border-t border-white/10 px-2 sm:px-4 py-2 sm:py-2.5 space-y-1.5 sm:space-y-2 shrink-0">
 
+          {/* Bold, standalone call-to-action — deliberately its own row,
+              not a small chip buried in the button group, since it's
+              telling viewers something worth acting on: this stream
+              actually goes up to 4K, and reaching that (or any quality
+              choice at all) requires fullscreen — see the click-catcher
+              comment in the video area above for why. */}
+          <div className="flex items-center justify-center gap-1.5 sm:gap-2 bg-amber-500/10 border border-amber-500/30 rounded-xl px-2.5 sm:px-3 py-1.5 sm:py-2">
+            <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+            <p className="text-[11px] sm:text-xs font-bold text-amber-400 text-center leading-snug">
+              Streaming in up to 4K Ultra HD — go Fullscreen <Maximize className="inline w-3 h-3 -mt-0.5" /> and pick the highest Quality in Settings <Settings2 className="inline w-3 h-3 -mt-0.5" /> for the clearest picture
+            </p>
+          </div>
+
           {renderTimelineRow()}
 
           <div className="flex items-center justify-between gap-1.5 sm:gap-3">
@@ -879,20 +892,11 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
               </span>
             </div>
 
-            {/* Right group: native-quality hint & Fullscreen. Quality/speed
-              are FULLSCREEN ONLY (see the click-catcher comment in the video
-              area above for why) — this hint prompts going fullscreen to
-              reach them, rather than pointing at a gear that isn't actually
-              clickable in this (normal) mode. */}
+            {/* Right group: Fullscreen only — the quality/speed prompt used
+              to be a small chip tucked in here; moved out to its own bold
+              banner above the timeline instead, since it's an important
+              call-to-action, not a minor button-row label. */}
             <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-              <span
-                className="hidden sm:flex h-8 sm:h-9 px-2 sm:px-3 rounded-xl items-center gap-1 sm:gap-1.5 bg-slate-900 text-slate-400 border border-white/10 text-[10px] sm:text-xs font-semibold shrink-0"
-                title="Quality and playback speed are only reachable in fullscreen, from YouTube's own settings icon in the top-right corner of the video."
-              >
-                <Settings2 className="w-3.5 h-3.5 text-amber-400" />
-                Fullscreen for Quality/Speed
-              </span>
-
               {/* Fullscreen */}
               <button
                 onClick={toggleFullscreen}
