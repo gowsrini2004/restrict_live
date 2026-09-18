@@ -133,12 +133,26 @@ const QUALITY_RETRY_INTERVAL_MS = 2500;
 // Manual quality switches now reinit immediately (see handleQualitySelect),
 // so this only guards the rarer case of YouTube's own ABR silently drifting
 // away from an already-matched quality mid-stream.
-const QUALITY_RETRY_RELOAD_THRESHOLD = 30;
-// How many hard reinits we'll force for the SAME desired quality before
-// giving up on it. Each reinit still targets what the viewer actually
-// asked for (a reload never silently downgrades the request), so this is
-// "try 3 fresh starts", not "retry then quietly settle for something else".
+const QUALITY_RETRY_RELOAD_THRESHOLD = 50;
+// How many REAL browser page reloads (window.location.reload — not just an
+// in-place player reinit) we'll force for the SAME desired quality before
+// giving up on it. Each reload still targets what the viewer actually
+// asked for (never silently downgraded), so this is "try 3 genuinely fresh
+// page loads", not "retry then quietly settle for something else". A real
+// reload — not just tearing down the YT.Player instance in place — is
+// deliberate: it clears the whole page's state/cache, giving YouTube's
+// player an actually fresh document to initialize against, not just a new
+// iframe inside the same still-running page.
 const QUALITY_MAX_RELOAD_ATTEMPTS = 3;
+// sessionStorage keys used to carry state across that real page reload —
+// which quality tier we were chasing (so a stale count doesn't apply to a
+// different tier), how many reload attempts we've burned on it so far, and
+// exactly where/at-what-speed to resume playback once the fresh page's
+// player is ready, so a reload never yanks the viewer back to the start.
+const QUALITY_RELOAD_TARGET_KEY = 'protected_player_quality_reload_target';
+const QUALITY_RELOAD_COUNT_KEY = 'protected_player_quality_reload_count';
+const QUALITY_RESUME_TIME_KEY = 'protected_player_resume_time';
+const QUALITY_RESUME_RATE_KEY = 'protected_player_resume_rate';
 // Highest → lowest, exactly the 3 selectable tiers. Once all reinit
 // attempts for a tier are exhausted, the retry system steps DOWN to the
 // next entry here (the highest quality still realistically achievable)
@@ -225,18 +239,43 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
   // target quality", since YouTube's embed has no real per-quality URL and a
   // true page reload would interrupt a live viewer's session/tab-lock state.
   const [playerReloadKey, setPlayerReloadKey] = useState(0);
-  // How many hard reinits we've already forced while chasing the CURRENT
-  // desired quality — each retry-threshold hit increments this; once it
-  // reaches QUALITY_MAX_RELOAD_ATTEMPTS, we stop reinit-ing that quality
-  // and step down to the next-lower of the 3 real tiers instead.
-  const qualityReloadAttemptsRef = useRef(0);
-  // Position/speed to restore right after a quality-triggered reinit — a
-  // fresh YT.Player always starts back at the live edge at 1x, so without
-  // this a quality switch while rewound into the DVR buffer would silently
-  // yank the viewer back to live. `null` means "this load is a genuinely
-  // new video/session, don't restore anything."
-  const resumePositionRef = useRef<number | null>(null);
-  const resumeRateRef = useRef<number>(1);
+  // How many REAL page reloads we've already forced while chasing the
+  // CURRENT desired quality — initialized from sessionStorage since a real
+  // window.location.reload() wipes every in-memory value, so this count has
+  // to survive the reload itself to know when to stop. Reset to 0 whenever
+  // the persisted target tier doesn't match what we're chasing right now
+  // (a different tier, or no reload chain in progress at all).
+  const qualityReloadAttemptsRef = useRef<number>((() => {
+    try {
+      if (sessionStorage.getItem(QUALITY_RELOAD_TARGET_KEY) !== selectedQuality) return 0;
+      return parseInt(sessionStorage.getItem(QUALITY_RELOAD_COUNT_KEY) || '0', 10) || 0;
+    } catch {
+      return 0;
+    }
+  })());
+  // Position/speed to restore once the player is ready again — after either
+  // an in-place reinit (manual quality switch) OR a real full page reload
+  // (exhausted retries). A fresh YT.Player always starts back at the live
+  // edge at 1x, so without this, either kind of reload while rewound into
+  // the DVR buffer would silently yank the viewer back to live. Initialized
+  // from sessionStorage so it also survives a real page reload, not just an
+  // in-place reinit; `null` means "nothing to restore."
+  const resumePositionRef = useRef<number | null>((() => {
+    try {
+      const v = sessionStorage.getItem(QUALITY_RESUME_TIME_KEY);
+      return v !== null ? parseFloat(v) : null;
+    } catch {
+      return null;
+    }
+  })());
+  const resumeRateRef = useRef<number>((() => {
+    try {
+      const v = sessionStorage.getItem(QUALITY_RESUME_RATE_KEY);
+      return v !== null ? parseFloat(v) : 1;
+    } catch {
+      return 1;
+    }
+  })());
 
   // Refs mirroring latest state so the postMessage listener (registered once)
   // always reads current values instead of a stale closure.
@@ -486,6 +525,10 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
       wasQualityMatchedRef.current = true;
       setQualityRetryAttempt(0);
       qualityReloadAttemptsRef.current = 0;
+      try {
+        sessionStorage.removeItem(QUALITY_RELOAD_TARGET_KEY);
+        sessionStorage.removeItem(QUALITY_RELOAD_COUNT_KEY);
+      } catch { /* ignore */ }
       clearRetry();
     } else {
       if (wasQualityMatchedRef.current) {
@@ -511,25 +554,34 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
               return next;
             }
 
-            // A run of nudges against the SAME live player instance did
-            // nothing — stop nudging and force a genuinely fresh reinit
-            // instead (see QUALITY_RETRY_RELOAD_THRESHOLD comment for why
-            // that's the one thing that reliably makes YouTube re-evaluate
-            // resolution). This still targets exactly what the viewer
-            // originally asked for — a reload never silently downgrades it.
+            // 50 nudges against the SAME live player instance did nothing —
+            // stop nudging and force a REAL browser page reload instead (not
+            // just tearing down/recreating the embedded player in place).
+            // This still targets exactly what the viewer originally asked
+            // for — a reload never silently downgrades it — and the exact
+            // playback position/speed is persisted through sessionStorage so
+            // the reload resumes right where the viewer was, not at the top.
             if (qualityReloadAttemptsRef.current < QUALITY_MAX_RELOAD_ATTEMPTS) {
-              qualityReloadAttemptsRef.current += 1;
+              const attemptNumber = qualityReloadAttemptsRef.current + 1;
               setQualityToast(
-                `Still can't reach ${desiredLabel} — reloading player (${qualityReloadAttemptsRef.current}/${QUALITY_MAX_RELOAD_ATTEMPTS})…`
+                `Still can't reach ${desiredLabel} — refreshing the page (${attemptNumber}/${QUALITY_MAX_RELOAD_ATTEMPTS})…`
               );
-              setTimeout(() => setQualityToast(null), 3000);
-              resumePositionRef.current = currentTimeRef.current;
-              resumeRateRef.current = desiredPlaybackRateRef.current;
-              setPlayerReloadKey((k) => k + 1);
-              return 0;
+              try {
+                sessionStorage.setItem(QUALITY_RELOAD_TARGET_KEY, selectedQuality);
+                sessionStorage.setItem(QUALITY_RELOAD_COUNT_KEY, String(attemptNumber));
+                sessionStorage.setItem(QUALITY_RESUME_TIME_KEY, String(currentTimeRef.current));
+                sessionStorage.setItem(QUALITY_RESUME_RATE_KEY, String(desiredPlaybackRateRef.current));
+              } catch { /* ignore — reload still proceeds, just without resume */ }
+              // Give the toast a moment to actually paint before the full
+              // reload wipes the page, then do a genuine navigation reload
+              // so the browser treats this as a truly fresh document load
+              // (clearing whatever cached/stuck player state got it here),
+              // not just a new iframe inside the same still-running page.
+              setTimeout(() => { window.location.reload(); }, 600);
+              return attemptNumber;
             }
 
-            // Exhausted every reinit attempt and it STILL doesn't match —
+            // Exhausted every reload attempt and it STILL doesn't match —
             // step down to the next-highest tier that's realistically
             // achievable instead of retrying this one forever. Still one of
             // the 3 real tiers, never an unconstrained 'auto'.
@@ -545,6 +597,10 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
             // Already at the lowest tier (FHD) — nothing left to step down
             // to, so just reset and keep retrying it at the normal cadence.
             qualityReloadAttemptsRef.current = 0;
+            try {
+              sessionStorage.removeItem(QUALITY_RELOAD_TARGET_KEY);
+              sessionStorage.removeItem(QUALITY_RELOAD_COUNT_KEY);
+            } catch { /* ignore */ }
             return 0;
           });
         }, QUALITY_RETRY_INTERVAL_MS);
@@ -670,15 +726,20 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
             }
             pollHandle = setInterval(pollPlayerState, PLAYER_POLL_INTERVAL_MS);
 
-            // If this load is a quality-triggered reinit (not a brand new
-            // video/session), restore the viewer's exact position and speed
-            // instead of leaving them snapped back to the live edge at 1x —
-            // give the fresh player a brief moment to actually start
-            // buffering before seeking, or the seek can be silently dropped.
+            // If this load is a quality-triggered reinit OR a resumed-after-
+            // full-page-reload load (not a brand new video/session), restore
+            // the viewer's exact position and speed instead of leaving them
+            // snapped back to the live edge at 1x — give the fresh player a
+            // brief moment to actually start buffering before seeking, or
+            // the seek can be silently dropped.
             if (resumePositionRef.current !== null) {
               const resumeAt = resumePositionRef.current;
               const resumeRate = resumeRateRef.current;
               resumePositionRef.current = null;
+              try {
+                sessionStorage.removeItem(QUALITY_RESUME_TIME_KEY);
+                sessionStorage.removeItem(QUALITY_RESUME_RATE_KEY);
+              } catch { /* ignore */ }
               setTimeout(() => {
                 try {
                   event.target.seekTo(resumeAt, true);
@@ -747,6 +808,12 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
     setShowQualityMenu(false);
     setQualityRetryAttempt(0);
     qualityReloadAttemptsRef.current = 0;
+    // A fresh manual pick abandons any in-progress reload chain from
+    // whatever tier was being chased before.
+    try {
+      sessionStorage.removeItem(QUALITY_RELOAD_TARGET_KEY);
+      sessionStorage.removeItem(QUALITY_RELOAD_COUNT_KEY);
+    } catch { /* ignore */ }
     setActualQuality('auto'); // clear stale reading immediately — the old value is about to be torn down anyway, and leaving it visible while a reinit is in flight misleadingly implies it's still live
 
     const targetObj = QUALITIES.find((q) => q.value === val) || QUALITIES[0];

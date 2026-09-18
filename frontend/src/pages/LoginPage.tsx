@@ -38,9 +38,9 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  const fillSuperAdmin = () => { setEmail('events@chennaimath.org'); setPasscode('ADMIN2026'); };
-  const fillDemoAdmin  = () => { setEmail('admin@chennaimath.org');  setPasscode('ADMIN2026'); };
-  const fillDemoUser   = () => { setEmail('attendee@example.com');   setPasscode('IRK2026');   };
+  const fillSuperAdmin = () => { setEmail('events@chennaimath.org'); setPasscode('Mother108*'); };
+  const fillDemoAdmin  = () => { setEmail('admin@chennaimath.org');  setPasscode('183663');     };
+  const fillDemoUser   = () => { setEmail('attendee@example.com');   setPasscode('IRK2026');    };
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-4 relative overflow-hidden">
