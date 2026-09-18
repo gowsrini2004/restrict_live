@@ -8,11 +8,43 @@ logger = logging.getLogger(__name__)
 SESSION_TTL_SECONDS = 86400  # 24 hours session lifetime
 HEARTBEAT_TIMEOUT_SECONDS = 45  # Consider user offline if no heartbeat within 45s
 
+# The "active users" index below is a single shared blob updated by every
+# heartbeat (potentially hundreds of viewers at once). A plain read-modify-
+# write on it is NOT atomic — two heartbeats landing concurrently can each
+# read the same snapshot, and whichever writes back last silently discards
+# the other's update, losing heartbeats under real concurrent load. cache.add()
+# is a genuine atomic "set-if-not-exists" on both the LocMemCache (dev) and
+# RedisCache (prod) backends, so it works as a real mutex either way.
+_ACTIVE_INDEX_LOCK_KEY = "active_users_set:lock"
+_ACTIVE_INDEX_LOCK_TIMEOUT = 2  # seconds — well above how long a blob update takes
+_ACTIVE_INDEX_LOCK_MAX_WAIT = 0.5  # seconds to spin-wait for the lock before giving up
+
 class SessionManager:
     """
     Session Manager handling single active device enforcement and live user tracking.
     Uses Django cache abstraction (backed by Redis in prod, memory cache in dev).
     """
+
+    @staticmethod
+    def _update_active_index(mutate):
+        """Read-modify-write the shared active-users blob under a mutex so
+        concurrent heartbeats can't silently overwrite each other's updates.
+        `mutate` receives the current dict and mutates it in place."""
+        acquired = False
+        waited = 0.0
+        while waited < _ACTIVE_INDEX_LOCK_MAX_WAIT:
+            if cache.add(_ACTIVE_INDEX_LOCK_KEY, "1", timeout=_ACTIVE_INDEX_LOCK_TIMEOUT):
+                acquired = True
+                break
+            time.sleep(0.01)
+            waited += 0.01
+        try:
+            active_index = cache.get("active_users_set") or {}
+            mutate(active_index)
+            cache.set("active_users_set", active_index, timeout=SESSION_TTL_SECONDS)
+        finally:
+            if acquired:
+                cache.delete(_ACTIVE_INDEX_LOCK_KEY)
 
     @staticmethod
     def set_active_session(user_id: str, email: str, session_id: str):
@@ -25,15 +57,15 @@ class SessionManager:
             "created_at": time.time()
         }
         cache.set(key, session_data, timeout=SESSION_TTL_SECONDS)
-        
+
         # Track in active users index
-        active_index = cache.get("active_users_set") or {}
-        active_index[user_id] = {
-            "email": email,
-            "session_id": session_id,
-            "last_heartbeat": time.time()
-        }
-        cache.set("active_users_set", active_index, timeout=SESSION_TTL_SECONDS)
+        def _mutate(active_index):
+            active_index[user_id] = {
+                "email": email,
+                "session_id": session_id,
+                "last_heartbeat": time.time()
+            }
+        SessionManager._update_active_index(_mutate)
 
     @staticmethod
     def is_session_valid(user_id: str, session_id: str) -> bool:
@@ -71,10 +103,10 @@ class SessionManager:
             cache.set(key, data, timeout=SESSION_TTL_SECONDS)
 
             # Update index
-            active_index = cache.get("active_users_set") or {}
-            if user_id in active_index:
-                active_index[user_id]["last_heartbeat"] = now
-                cache.set("active_users_set", active_index, timeout=SESSION_TTL_SECONDS)
+            def _mutate(active_index):
+                if user_id in active_index:
+                    active_index[user_id]["last_heartbeat"] = now
+            SessionManager._update_active_index(_mutate)
             return True
         return False
 
@@ -83,18 +115,17 @@ class SessionManager:
         """Invalidates a user session explicitly (Logout)."""
         key = f"active_session:{user_id}"
         cache.delete(key)
-        
-        active_index = cache.get("active_users_set") or {}
-        if user_id in active_index:
-            del active_index[user_id]
-            cache.set("active_users_set", active_index, timeout=SESSION_TTL_SECONDS)
+
+        def _mutate(active_index):
+            active_index.pop(user_id, None)
+        SessionManager._update_active_index(_mutate)
 
     @staticmethod
     def get_live_metrics():
         """Returns the current online user count and active user roster based on recent heartbeats."""
         now = time.time()
         active_index = cache.get("active_users_set") or {}
-        
+
         live_users = []
         expired_ids = []
 
@@ -111,9 +142,10 @@ class SessionManager:
 
         # Cleanup expired from index
         if expired_ids:
-            for uid in expired_ids:
-                del active_index[uid]
-            cache.set("active_users_set", active_index, timeout=SESSION_TTL_SECONDS)
+            def _mutate(active_index):
+                for uid in expired_ids:
+                    active_index.pop(uid, None)
+            SessionManager._update_active_index(_mutate)
 
         return {
             "online_count": len(live_users),

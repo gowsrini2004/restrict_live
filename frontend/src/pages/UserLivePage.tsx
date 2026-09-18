@@ -90,15 +90,19 @@ export const UserLivePage: React.FC = () => {
             : 'text-slate-500 bg-slate-800/60 border-white/10'
         }`}>
           <span className={`w-2 h-2 rounded-full ${streamConfig.is_live ? 'bg-red-500 animate-pulse' : 'bg-slate-600'}`} />
-          {streamConfig.is_live ? 'Broadcasting Live' : 'Offline'}
+          {streamConfig.is_live ? 'Broadcasting Live' : 'Not Live'}
         </div>
       </div>
 
-      {/* Content area — fills remaining height strictly without outer page scroll on desktop */}
-      <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
+      {/* Content area — fills remaining height strictly on desktop (no outer
+          scroll); on mobile the two panels stack and this area itself
+          scrolls, since a stacked player + Q&A list is taller than one
+          screen and each panel below needs a real (not auto/0) height for
+          its own internal layout to work. */}
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
 
         {/* Left: Video Player container */}
-        <div className="w-full lg:flex-1 lg:min-w-0 flex flex-col h-auto lg:h-full overflow-hidden bg-slate-950">
+        <div className="w-full lg:flex-1 lg:min-w-0 flex flex-col shrink-0 lg:shrink lg:h-full overflow-hidden bg-slate-950">
           <ProtectedPlayer
             videoId={streamConfig.youtube_video_id}
             title={streamConfig.title}
@@ -108,8 +112,11 @@ export const UserLivePage: React.FC = () => {
           />
         </div>
 
-        {/* Right: Q&A Panel container */}
-        <div className="w-full lg:w-[360px] xl:w-[400px] shrink-0 flex flex-col border-t border-white/8 lg:border-t-0 lg:border-l lg:border-white/8 h-auto lg:h-full overflow-hidden">
+        {/* Right: Q&A Panel container — needs an explicit height on mobile
+            (not h-auto) because QnAPanel itself is `h-full` with an internal
+            `flex-1 overflow-y-auto` message list; against an auto-height
+            ancestor that h-full resolves to 0, collapsing the whole panel. */}
+        <div className="w-full lg:w-[360px] xl:w-[400px] shrink-0 flex flex-col border-t border-white/8 lg:border-t-0 lg:border-l lg:border-white/8 h-[70vh] lg:h-full overflow-hidden">
           <QnAPanel />
         </div>
 

@@ -38,7 +38,10 @@ class StreamConfig(models.Model):
             match = re.search(pattern, url_or_id)
             if match:
                 return match.group(1)
-        return url_or_id
+        # No known format matched — never return the raw input as-is, since
+        # it could be arbitrarily long and this value gets stored in a
+        # varchar(50) column (this previously caused a 500 error on save).
+        return url_or_id[:50]
 
 class Question(models.Model):
     STATUS_CHOICES = [

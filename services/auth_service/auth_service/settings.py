@@ -11,9 +11,13 @@ if str(ROOT_DIR) not in sys.path:
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-prod-ready-live-stream-secret-key-irk2026')
 
-DEBUG = True
+# Defaults preserve today's local/docker-compose behavior. For a real AWS/Azure
+# deployment, set DEBUG=False and ALLOWED_HOSTS to your real domain(s) via env
+# vars — never via code changes here (running with DEBUG=True in production
+# leaks stack traces, secrets, and source paths to anyone who can trigger an error).
+DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',')
 
 INSTALLED_APPS = [
     'django.contrib.admin',

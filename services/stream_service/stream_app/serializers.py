@@ -10,7 +10,12 @@ class StreamConfigSerializer(serializers.ModelSerializer):
 
     def validate_youtube_url(self, value):
         video_id = StreamConfig.extract_video_id(value)
-        if not video_id or len(video_id) < 5:
+        # Real YouTube video IDs are always exactly 11 characters. Anything
+        # else means the URL didn't match a known format — reject it here
+        # rather than silently saving the raw (possibly very long) input,
+        # which previously overflowed the youtube_video_id column and
+        # crashed the request with a 500 error.
+        if not video_id or len(video_id) != 11:
             raise serializers.ValidationError("Invalid YouTube URL or Video ID format.")
         return value
 

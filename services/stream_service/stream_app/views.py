@@ -2,6 +2,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
 from django.core.cache import cache
+from django.db.models import F
 from .models import StreamConfig, Question
 from .serializers import StreamConfigSerializer, QuestionSerializer, AdminQuestionModerationSerializer
 from services.auth_service.users.auth_helpers import enforce_active_session, require_admin
@@ -133,13 +134,17 @@ def upvote_question_view(request, question_id):
         }, status=status.HTTP_400_BAD_REQUEST)
 
     try:
+        # Atomic DB-level increment (not read-modify-write) so concurrent
+        # upvotes from many viewers at once can't silently overwrite each
+        # other and lose increments under load.
+        updated = Question.objects.filter(id=question_id).update(upvotes=F('upvotes') + 1)
+        if not updated:
+            raise Question.DoesNotExist
         question = Question.objects.get(id=question_id)
-        question.upvotes += 1
-        question.save(update_fields=['upvotes'])
-        
+
         # Remember user's upvote in Redis cache for 7 days
         cache.set(cache_key, True, timeout=86400 * 7)
-        
+
         return Response({
             "success": True,
             "data": QuestionSerializer(question).data
