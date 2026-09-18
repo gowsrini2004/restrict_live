@@ -129,6 +129,17 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
   // Fullscreen auto-hide: controls fade out after inactivity while playing,
   // and reappear (in place — nothing is unmounted) on any mouse/touch activity.
   const [controlsVisible, setControlsVisible] = useState(true);
+  // When YouTube's native settings menu is open, its popup panel renders
+  // far larger than the small click-through gap we expose for the gear icon
+  // itself — and because the iframe is cross-origin, we have NO way to
+  // detect from here that the menu opened (clicks/mousemoves inside a
+  // cross-origin iframe never reach the parent page at all, by browser
+  // design — there's no event to listen for). So instead of guessing, this
+  // is an explicit toggle: the viewer taps "Quality/Speed" to temporarily
+  // make the WHOLE video natively clickable (all our click-catchers turn
+  // off), uses YouTube's real menu freely, then taps "Exit Native Controls"
+  // to restore our own protected click-to-play behavior.
+  const [nativeControlsOpen, setNativeControlsOpen] = useState(false);
 
   // Refs mirroring latest state so the postMessage listener (registered once)
   // always reads current values instead of a stale closure.
@@ -619,8 +630,12 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
                 — see the native-controls hot zone + hint badge below. The
                 gradient itself stops short of that zone so the gear isn't
                 visually darkened. Fades out with the rest of the chrome on
-                fullscreen inactivity. */}
-            <div className={`absolute top-0 left-0 h-16 bg-gradient-to-b from-black/85 to-transparent z-20 flex items-center gap-3 px-3 sm:px-4 pointer-events-auto transition-opacity duration-300 ${
+                fullscreen inactivity, and stops blocking clicks entirely
+                while native controls are open (see click-catcher comment
+                below for why). */}
+            <div className={`absolute top-0 left-0 h-16 bg-gradient-to-b from-black/85 to-transparent z-20 flex items-center gap-3 px-3 sm:px-4 transition-opacity duration-300 ${
+              nativeControlsOpen ? 'pointer-events-none' : 'pointer-events-auto'
+            } ${
               controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
             }`}
               style={{ right: NATIVE_CONTROLS_ZONE_WIDTH_PX + NATIVE_CONTROLS_ZONE_RIGHT_OFFSET_PX }}
@@ -632,25 +647,26 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
               )}
             </div>
 
-            {/* Small hint badge sitting just left of the native-controls
-                window, pointer-events-none so it never blocks the click-
-                through gap next to it — same visual language as the
-                "Protected" badge, just pointing at where quality/speed
-                actually live now. */}
+            {/* Small in-video hint, pointer-events-none so it never blocks
+                anything — the real toggle button lives in the control bar
+                below the video (see there), never inside the video itself,
+                since the native menu panel can render anywhere and a
+                toggle in here could easily end up underneath it. */}
             <div className={`absolute top-2 sm:top-3 z-20 pointer-events-none transition-opacity duration-300 ${
               controlsVisible ? 'opacity-100' : 'opacity-0'
             }`}
               style={{ right: NATIVE_CONTROLS_ZONE_WIDTH_PX + NATIVE_CONTROLS_ZONE_RIGHT_OFFSET_PX + 8 }}
             >
               <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-black/50 px-2.5 py-1 rounded-full border border-amber-500/25 backdrop-blur whitespace-nowrap">
-                <Settings2 className="w-3 h-3" /> Click ⚙ for Quality/Speed
+                <Settings2 className="w-3 h-3" />
+                {nativeControlsOpen ? 'Native Controls Active' : 'Click ⚙ for Quality/Speed'}
               </span>
             </div>
 
             {/* Bottom shield — hides YouTube's own seek bar/branding. Full
                 width now — the native-controls window moved to the TOP, so
                 the bottom needs no gap. */}
-            <div className="absolute bottom-0 left-0 right-0 h-14 bg-gradient-to-t from-black to-transparent z-20 pointer-events-none" />
+            <div className={`absolute bottom-0 left-0 right-0 h-14 bg-gradient-to-t from-black to-transparent z-20 pointer-events-none`} />
 
             {/* Click-to-play catcher, tiled as three rectangles instead of
                 one full-coverage div, deliberately leaving a small window
@@ -659,24 +675,34 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
                 TOP-right of the video, not the bottom. Clicks in that gap
                 fall through to the real iframe underneath (pointer-events:
                 auto, set in onReady) instead of being captured here, so the
-                native quality/speed menu is genuinely clickable. Whatever
-                sits at the very top-right edge beyond the gear (YouTube's
-                own logo/watermark) stays deliberately covered. */}
-            <div
-              className="absolute bottom-0 left-0 right-0 z-10 cursor-pointer"
-              style={{ top: NATIVE_CONTROLS_ZONE_HEIGHT_PX }}
-              onClick={togglePlay}
-            />
-            <div
-              className="absolute top-0 left-0 z-10 cursor-pointer"
-              style={{ height: NATIVE_CONTROLS_ZONE_HEIGHT_PX, right: NATIVE_CONTROLS_ZONE_WIDTH_PX + NATIVE_CONTROLS_ZONE_RIGHT_OFFSET_PX }}
-              onClick={togglePlay}
-            />
-            <div
-              className="absolute top-0 right-0 z-10 cursor-pointer"
-              style={{ height: NATIVE_CONTROLS_ZONE_HEIGHT_PX, width: NATIVE_CONTROLS_ZONE_RIGHT_OFFSET_PX }}
-              onClick={togglePlay}
-            />
+                native settings GEAR ICON is genuinely clickable.
+                The MENU that gear opens is a much bigger panel than this
+                gap, though — and because the iframe is cross-origin, we
+                have no way to detect it opened and temporarily grow the
+                gap to match. So once nativeControlsOpen is true (the
+                viewer explicitly tapped the toggle in the control bar
+                below), these rectangles are skipped entirely, exposing the
+                WHOLE video to native clicks until the viewer taps "Exit
+                Native Controls" to restore our own click-to-play/protection. */}
+            {!nativeControlsOpen && (
+              <>
+                <div
+                  className="absolute bottom-0 left-0 right-0 z-10 cursor-pointer"
+                  style={{ top: NATIVE_CONTROLS_ZONE_HEIGHT_PX }}
+                  onClick={togglePlay}
+                />
+                <div
+                  className="absolute top-0 left-0 z-10 cursor-pointer"
+                  style={{ height: NATIVE_CONTROLS_ZONE_HEIGHT_PX, right: NATIVE_CONTROLS_ZONE_WIDTH_PX + NATIVE_CONTROLS_ZONE_RIGHT_OFFSET_PX }}
+                  onClick={togglePlay}
+                />
+                <div
+                  className="absolute top-0 right-0 z-10 cursor-pointer"
+                  style={{ height: NATIVE_CONTROLS_ZONE_HEIGHT_PX, width: NATIVE_CONTROLS_ZONE_RIGHT_OFFSET_PX }}
+                  onClick={togglePlay}
+                />
+              </>
+            )}
 
             {/* Fullscreen bottom overlay — timeline, play/pause, volume &
                 exit-fullscreen; fades out with the rest of the chrome on
@@ -732,6 +758,18 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
                   </div>
 
                   <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                    <button
+                      onClick={() => setNativeControlsOpen((v) => !v)}
+                      className={`h-8 sm:h-9 px-2 sm:px-3 rounded-xl flex items-center gap-1 sm:gap-1.5 border text-[10px] sm:text-xs font-semibold shrink-0 transition-all active:scale-95 ${
+                        nativeControlsOpen
+                          ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md shadow-amber-500/30'
+                          : 'bg-slate-900 text-slate-400 border-white/10 hover:text-white hover:bg-slate-800'
+                      }`}
+                      title={nativeControlsOpen ? 'Restore protected click-to-play' : "Temporarily unlock YouTube's own Quality/Speed menu"}
+                    >
+                      <Settings2 className="w-3.5 h-3.5" />
+                      {nativeControlsOpen ? 'Exit Native Controls' : 'Quality/Speed'}
+                    </button>
                     <button
                       onClick={toggleFullscreen}
                       className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-white/10 transition-all shrink-0"
@@ -837,18 +875,25 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
             </span>
           </div>
 
-          {/* Right group: native-quality hint & Fullscreen. Quality/speed
-              live in YouTube's own settings gear now (top-right corner of
-              the video itself), not a custom dropdown here — see the
-              NATIVE_CONTROLS_ZONE click-catcher gap above. */}
+          {/* Right group: native-controls toggle & Fullscreen. Quality/
+              speed live in YouTube's own settings gear (top-right corner of
+              the video), which needs the toggle below ON to be reachable —
+              see the long comment on the click-catcher rectangles above for
+              why this has to be an explicit toggle rather than something
+              automatic. */}
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-            <span
-              className="hidden sm:flex h-8 sm:h-9 px-2 sm:px-3 rounded-xl items-center gap-1 sm:gap-1.5 bg-slate-900 text-slate-400 border border-white/10 text-[10px] sm:text-xs font-semibold shrink-0"
-              title="Quality and playback speed are set from YouTube's own settings icon, in the top-right corner of the video."
+            <button
+              onClick={() => setNativeControlsOpen((v) => !v)}
+              className={`h-8 sm:h-9 px-2 sm:px-3 rounded-xl flex items-center gap-1 sm:gap-1.5 border text-[10px] sm:text-xs font-semibold shrink-0 transition-all active:scale-95 ${
+                nativeControlsOpen
+                  ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md shadow-amber-500/30'
+                  : 'bg-slate-900 text-slate-400 border-white/10 hover:text-white hover:bg-slate-800'
+              }`}
+              title={nativeControlsOpen ? 'Restore protected click-to-play' : "Temporarily unlock YouTube's own Quality/Speed menu, in the video's top-right corner"}
             >
-              <Settings2 className="w-3.5 h-3.5 text-amber-400" />
-              Quality/Speed ↗
-            </span>
+              <Settings2 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{nativeControlsOpen ? 'Exit Native Controls' : 'Quality/Speed'}</span>
+            </button>
 
             {/* Fullscreen */}
             <button
