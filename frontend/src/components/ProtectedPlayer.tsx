@@ -68,7 +68,7 @@ const NATIVE_MENU_ZONE_SIDE_PERCENT = 28; // left AND right margin — window wi
 // menu-item click. Pushing the top edge further down shrinks the window so
 // only genuine menu content is reachable. Edit directly to tune against a
 // real phone.
-const NATIVE_MENU_ZONE_TOP_PERCENT_MOBILE = 58;
+const NATIVE_MENU_ZONE_TOP_PERCENT_MOBILE = 78;
 
 const formatTime = (totalSeconds: number): string => {
   if (!isFinite(totalSeconds) || totalSeconds < 0) return '0:00';
@@ -739,12 +739,22 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
               )}
 
               {/* Fullscreen bottom overlay — timeline, play/pause, volume &
-                exit-fullscreen; fades out with the rest of the chrome on
-                inactivity. Quality/speed are reached via the native window
-                above, not shown here — YouTube's own control bar is visible
-                at the bottom of the video itself in fullscreen too. */}
+                exit-fullscreen; visually fades out with the rest of the
+                chrome on inactivity, but STAYS pointer-events-auto even
+                while faded (deliberately, unlike the other auto-hiding
+                overlays) — its footprint overlaps the native menu-zone
+                click-through gap below, and once this div stopped blocking
+                clicks (the old opacity-0 also carried pointer-events-none),
+                that same footprint of the gap became reachable the instant
+                this bar faded, letting a tap land there with zero visual
+                indication anything was clickable. Keeping it solid at all
+                times closes that off — a tap here while faded still bubbles
+                up to the container's own click handler (bringing the
+                controls back), it just no longer also reaches the iframe
+                underneath. Quality/speed are reached via the native gear
+                window above (top-right), not through here. */}
               {isFullscreen && (
-                <div className={`absolute bottom-0 left-0 right-0 z-30 bg-gradient-to-t from-black/90 via-black/60 to-transparent px-2 sm:px-4 pt-10 pb-2 sm:pb-3 space-y-1.5 sm:space-y-2.5 pointer-events-auto transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                <div className={`absolute bottom-0 left-0 right-0 z-30 bg-gradient-to-t from-black/90 via-black/60 to-transparent px-2 sm:px-4 pt-10 pb-2 sm:pb-3 space-y-1.5 sm:space-y-2.5 pointer-events-auto transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0'
                   }`}>
                   {renderTimelineRow()}
                   <div className="flex items-center justify-between gap-1.5 sm:gap-3">
