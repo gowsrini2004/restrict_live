@@ -123,13 +123,19 @@ const QUALITY_RETRY_INTERVAL_MS = 2500;
 // reliably listens to (see applyRenderResolution's `jiggle` comment above).
 // Manual quality switches now reinit immediately (see handleQualitySelect),
 // so this only guards the rarer case of YouTube's own ABR silently drifting
-// away from an already-matched quality mid-stream — kept short (20s) so
-// that recovers quickly too instead of trickling nudges for over a minute.
-const QUALITY_RETRY_RELOAD_THRESHOLD = 8;
-// If a full reinit still hasn't reached the requested quality after another
-// full retry cycle, stop chasing it and settle on a safe, broadly-playable
-// default instead of retrying forever.
-const QUALITY_FALLBACK_VALUE = 'hd1080';
+// away from an already-matched quality mid-stream.
+const QUALITY_RETRY_RELOAD_THRESHOLD = 30;
+// How many hard reinits we'll force for the SAME desired quality before
+// giving up on it. Each reinit still targets what the viewer actually
+// asked for (a reload never silently downgrades the request), so this is
+// "try 3 fresh starts", not "retry then quietly settle for something else".
+const QUALITY_MAX_RELOAD_ATTEMPTS = 3;
+// Once all reinit attempts are exhausted and it STILL doesn't match, stop
+// chasing a specific number and hand control back to YouTube's own adaptive
+// algorithm — 'auto' is a genuine terminal state (the retry effect never
+// fights 'auto'), unlike falling back to another fixed tier that could
+// itself be unreachable and loop forever.
+const QUALITY_FALLBACK_VALUE = 'auto';
 
 export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
   videoId,
@@ -198,10 +204,11 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
   // target quality", since YouTube's embed has no real per-quality URL and a
   // true page reload would interrupt a live viewer's session/tab-lock state.
   const [playerReloadKey, setPlayerReloadKey] = useState(0);
-  // Whether we've already forced one fresh reinit while chasing the CURRENT
-  // desired quality — gates the reload from firing repeatedly, and gates the
-  // eventual fallback-to-FHD from firing before a reinit was even tried.
-  const hasReloadedForQualityRef = useRef(false);
+  // How many hard reinits we've already forced while chasing the CURRENT
+  // desired quality — each retry-threshold hit increments this; once it
+  // reaches QUALITY_MAX_RELOAD_ATTEMPTS, we stop reinit-ing that quality
+  // and fall back to 'auto' instead.
+  const qualityReloadAttemptsRef = useRef(0);
   // Position/speed to restore right after a quality-triggered reinit — a
   // fresh YT.Player always starts back at the live edge at 1x, so without
   // this a quality switch while rewound into the DVR buffer would silently
@@ -437,7 +444,7 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
       }
       wasQualityMatchedRef.current = true;
       setQualityRetryAttempt(0);
-      hasReloadedForQualityRef.current = false;
+      qualityReloadAttemptsRef.current = 0;
       clearRetry();
     } else {
       if (wasQualityMatchedRef.current) {
@@ -463,13 +470,17 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
               return next;
             }
 
-            // 30 nudges against the SAME live player instance did nothing —
-            // stop nudging and force a genuinely fresh reinit instead (see
-            // QUALITY_RETRY_RELOAD_THRESHOLD comment for why that's the one
-            // thing that reliably makes YouTube re-evaluate resolution).
-            if (!hasReloadedForQualityRef.current) {
-              hasReloadedForQualityRef.current = true;
-              setQualityToast(`Still can't reach ${desiredLabel} — reloading player…`);
+            // A run of nudges against the SAME live player instance did
+            // nothing — stop nudging and force a genuinely fresh reinit
+            // instead (see QUALITY_RETRY_RELOAD_THRESHOLD comment for why
+            // that's the one thing that reliably makes YouTube re-evaluate
+            // resolution). This still targets exactly what the viewer
+            // originally asked for — a reload never silently downgrades it.
+            if (qualityReloadAttemptsRef.current < QUALITY_MAX_RELOAD_ATTEMPTS) {
+              qualityReloadAttemptsRef.current += 1;
+              setQualityToast(
+                `Still can't reach ${desiredLabel} — reloading player (${qualityReloadAttemptsRef.current}/${QUALITY_MAX_RELOAD_ATTEMPTS})…`
+              );
               setTimeout(() => setQualityToast(null), 3000);
               resumePositionRef.current = currentTimeRef.current;
               resumeRateRef.current = desiredPlaybackRateRef.current;
@@ -477,16 +488,15 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
               return 0;
             }
 
-            // Already reloaded once and STILL not matching after a full
-            // second retry cycle — stop chasing it and settle on a safe,
-            // broadly-playable default rather than retrying forever.
+            // Exhausted every reinit attempt and it STILL doesn't match —
+            // stop chasing a specific tier and hand control back to
+            // YouTube's own adaptive algorithm instead of retrying forever.
             if (selectedQuality !== QUALITY_FALLBACK_VALUE) {
-              const fallbackLabel = QUALITIES.find((q) => q.value === QUALITY_FALLBACK_VALUE)?.badge || 'FHD';
-              setQualityToast(`Couldn't reach ${desiredLabel} — switching to ${fallbackLabel}`);
+              setQualityToast(`Couldn't reach ${desiredLabel} after ${QUALITY_MAX_RELOAD_ATTEMPTS} reloads — switching to Auto`);
               setTimeout(() => setQualityToast(null), 3000);
               desiredQualityRef.current = QUALITY_FALLBACK_VALUE;
               setSelectedQuality(QUALITY_FALLBACK_VALUE);
-              hasReloadedForQualityRef.current = false;
+              qualityReloadAttemptsRef.current = 0;
             }
             return 0;
           });
@@ -689,7 +699,7 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
     try { localStorage.setItem(QUALITY_STORAGE_KEY, val); } catch { /* ignore */ }
     setShowQualityMenu(false);
     setQualityRetryAttempt(0);
-    hasReloadedForQualityRef.current = false;
+    qualityReloadAttemptsRef.current = 0;
     setActualQuality('auto'); // clear stale reading immediately — the old value is about to be torn down anyway, and leaving it visible while a reinit is in flight misleadingly implies it's still live
 
     const targetObj = QUALITIES.find((q) => q.value === val) || QUALITIES[0];
