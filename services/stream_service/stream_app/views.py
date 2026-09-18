@@ -5,12 +5,21 @@ from django.core.cache import cache
 from django.db.models import F
 from .models import StreamConfig, Question
 from .serializers import StreamConfigSerializer, QuestionSerializer, AdminQuestionModerationSerializer
-from services.auth_service.users.auth_helpers import enforce_active_session, require_admin
+from services.auth_service.users.auth_helpers import enforce_active_session, require_admin, get_token_from_request
+from services.auth_service.users.utils import decode_jwt_token
+from services.common.failure_log import log_failure, CATEGORY_QNA_SUBMIT_FAILED, CATEGORY_QNA_UPVOTE_FAILED
 
 @api_view(['GET'])
 def get_stream_config(request):
     """
     Returns active stream configuration for live users (live status, video ID, offline banner).
+
+    Deliberately has no @enforce_active_session — App.tsx polls this BEFORE
+    login to detect emergency-fallback mode, which must keep working even
+    for visitors who can't log in. But that means the video ID must not be
+    handed out to just anyone: below, it's stripped from the response
+    unless the request carries a valid session token, or fallback is
+    actually active (in which case publicly playable is the whole point).
     """
     config = StreamConfig.objects.first()
     if not config:
@@ -20,9 +29,23 @@ def get_stream_config(request):
             youtube_video_id="jfKfPfyJRdk",
             is_live=True
         )
+
+    is_authenticated = False
+    token = get_token_from_request(request)
+    if token:
+        try:
+            payload = decode_jwt_token(token)
+            is_authenticated = payload.get('type') == 'access'
+        except ValueError:
+            is_authenticated = False
+
+    data = StreamConfigSerializer(config).data
+    if not is_authenticated and not config.is_emergency_fallback:
+        data['youtube_video_id'] = ''
+
     return Response({
         "success": True,
-        "data": StreamConfigSerializer(config).data
+        "data": data
     })
 
 @api_view(['POST'])
@@ -186,10 +209,14 @@ def questions_view(request):
     else:
         claims = request.user_claims
         user_email = claims.get('email', 'anonymous')
-        
+
         serializer = QuestionSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        
+        try:
+            serializer.is_valid(raise_exception=True)
+        except Exception:
+            log_failure(user_email, CATEGORY_QNA_SUBMIT_FAILED, f"Question submission rejected — {serializer.errors}")
+            raise
+
         question = Question.objects.create(
             user_email=user_email,
             question_text=serializer.validated_data['question_text'],
@@ -209,9 +236,11 @@ def upvote_question_view(request, question_id):
     """
     claims = request.user_claims
     user_id = claims.get('user_id', 'anonymous')
+    user_email = claims.get('email', 'anonymous')
     cache_key = f"upvoted_question:{user_id}:{question_id}"
 
     if cache.get(cache_key):
+        log_failure(user_email, CATEGORY_QNA_UPVOTE_FAILED, f"Tried to upvote question {question_id} again — already upvoted.")
         return Response({
             "success": False,
             "error": {
@@ -238,6 +267,7 @@ def upvote_question_view(request, question_id):
             "data": QuestionSerializer(question).data
         })
     except Question.DoesNotExist:
+        log_failure(user_email, CATEGORY_QNA_UPVOTE_FAILED, f"Tried to upvote question {question_id}, which no longer exists.")
         return Response({
             "success": False,
             "error": {

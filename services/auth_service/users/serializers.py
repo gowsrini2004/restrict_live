@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
-from .models import AuthorizedUser, SystemConfig
+from .models import AuthorizedUser, SystemConfig, FailureLog
 import io
 import csv
 
@@ -91,3 +91,8 @@ class SystemConfigSerializer(serializers.ModelSerializer):
         model = SystemConfig
         fields = ['key', 'value', 'updated_at']
         read_only_fields = ['updated_at']
+
+class FailureLogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FailureLog
+        fields = ['id', 'email', 'category', 'description', 'created_at']

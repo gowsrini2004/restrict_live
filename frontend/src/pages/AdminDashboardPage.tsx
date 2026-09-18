@@ -53,11 +53,19 @@ interface Question {
   created_at: string;
 }
 
+interface FailureLogItem {
+  id: string;
+  email: string;
+  category: string;
+  description: string;
+  created_at: string;
+}
+
 export const AdminDashboardPage: React.FC = () => {
   const { isSuperAdmin, user: currentUser } = useAuth();
   const { showSuccess, showError, showWarning } = useToast();
 
-  const [activeTab, setActiveTab] = useState<'metrics' | 'users' | 'stream' | 'qna'>('metrics');
+  const [activeTab, setActiveTab] = useState<'metrics' | 'users' | 'stream' | 'qna' | 'logs'>('metrics');
 
   // Live Metrics state
   const [onlineCount, setOnlineCount] = useState<number>(0);
@@ -113,6 +121,17 @@ export const AdminDashboardPage: React.FC = () => {
 
   // Q&A Moderation list
   const [adminQuestions, setAdminQuestions] = useState<Question[]>([]);
+
+  // Failure Log state — every recorded failed login / failed Q&A action,
+  // filtered server-side (search matches email OR description).
+  const [failureLogs, setFailureLogs] = useState<FailureLogItem[]>([]);
+  const [failureLogTotal, setFailureLogTotal] = useState<number>(0);
+  const [failureCategories, setFailureCategories] = useState<Record<string, string>>({});
+  const [logSearch, setLogSearch] = useState<string>('');
+  const [logCategory, setLogCategory] = useState<string>('');
+  const [logDateFrom, setLogDateFrom] = useState<string>('');
+  const [logDateTo, setLogDateTo] = useState<string>('');
+  const [isLoadingLogs, setIsLoadingLogs] = useState<boolean>(false);
 
   // Fetch Live Metrics
   const fetchMetrics = async () => {
@@ -188,12 +207,36 @@ export const AdminDashboardPage: React.FC = () => {
     }
   };
 
+  // Fetch Failure Logs — server-side search/category/date filtering.
+  const fetchFailureLogs = async () => {
+    try {
+      setIsLoadingLogs(true);
+      const params: Record<string, string> = {};
+      if (logSearch.trim()) params.search = logSearch.trim();
+      if (logCategory) params.category = logCategory;
+      if (logDateFrom) params.date_from = logDateFrom;
+      if (logDateTo) params.date_to = logDateTo;
+
+      const res = await apiClient.get('/admin/failure-logs/', { params });
+      if (res.data?.success && res.data.data) {
+        setFailureLogs(res.data.data.logs || []);
+        setFailureLogTotal(res.data.data.total_count || 0);
+        setFailureCategories(res.data.data.categories || {});
+      }
+    } catch (err) {
+      console.error("Failed to fetch failure logs:", err);
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  };
+
   useEffect(() => {
     fetchMetrics();
     fetchStreamConfig();
     fetchRoster();
     fetchPasscode();
     fetchAdminQuestions();
+    fetchFailureLogs();
 
     const metricsInterval = setInterval(fetchMetrics, 5000);
     const qnaInterval = setInterval(fetchAdminQuestions, 8000);
@@ -202,6 +245,13 @@ export const AdminDashboardPage: React.FC = () => {
       clearInterval(qnaInterval);
     };
   }, []);
+
+  // Re-query the failure log whenever a filter changes, debounced so free
+  // typing in the search box doesn't fire a request on every keystroke.
+  useEffect(() => {
+    const t = setTimeout(fetchFailureLogs, 350);
+    return () => clearTimeout(t);
+  }, [logSearch, logCategory, logDateFrom, logDateTo]);
 
   // Filtered & Sorted User Roster (Super Admins -> Admins -> Attendees)
   const filteredUsers = useMemo(() => {
@@ -653,6 +703,17 @@ export const AdminDashboardPage: React.FC = () => {
             }`}
           >
             <MessageSquare className="w-4 h-4" /> Q&A Moderation ({adminQuestions.length})
+          </button>
+
+          <button
+            onClick={() => setActiveTab('logs')}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all shrink-0 ${
+              activeTab === 'logs'
+                ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20'
+                : 'bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <AlertTriangle className="w-4 h-4" /> Failure Logs ({failureLogTotal})
           </button>
         </div>
 
@@ -1210,6 +1271,120 @@ export const AdminDashboardPage: React.FC = () => {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 5: Failure Logs — every recorded failed login / failed Q&A
+            action, with server-side search + category + date filtering. */}
+        {activeTab === 'logs' && (
+          <div className="bg-slate-900/90 border border-white/10 rounded-2xl p-6 shadow-2xl space-y-4 animate-fadeIn">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/10">
+              <h3 className="text-white font-bold text-base flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-amber-400" /> Failure Log ({failureLogTotal})
+              </h3>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Free-text search — matches email OR description */}
+                <div className="relative min-w-[200px]">
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                  <input
+                    type="text"
+                    value={logSearch}
+                    onChange={(e) => setLogSearch(e.target.value)}
+                    placeholder="Search email or description..."
+                    className="w-full pl-9 pr-3 py-1.5 bg-slate-950/80 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                {/* Category Filter */}
+                <div className="relative">
+                  <select
+                    value={logCategory}
+                    onChange={(e) => setLogCategory(e.target.value)}
+                    className="pl-3 pr-8 py-1.5 bg-slate-950/80 border border-white/10 rounded-xl text-xs text-slate-300 focus:outline-none focus:border-amber-500 cursor-pointer"
+                  >
+                    <option value="">All Categories</option>
+                    {Object.entries(failureCategories).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Date Range Filter */}
+                <input
+                  type="date"
+                  value={logDateFrom}
+                  onChange={(e) => setLogDateFrom(e.target.value)}
+                  title="From date"
+                  className="px-2.5 py-1.5 bg-slate-950/80 border border-white/10 rounded-xl text-xs text-slate-300 focus:outline-none focus:border-amber-500"
+                />
+                <span className="text-slate-600 text-xs">to</span>
+                <input
+                  type="date"
+                  value={logDateTo}
+                  onChange={(e) => setLogDateTo(e.target.value)}
+                  title="To date"
+                  className="px-2.5 py-1.5 bg-slate-950/80 border border-white/10 rounded-xl text-xs text-slate-300 focus:outline-none focus:border-amber-500"
+                />
+
+                {(logSearch || logCategory || logDateFrom || logDateTo) && (
+                  <button
+                    onClick={() => { setLogSearch(''); setLogCategory(''); setLogDateFrom(''); setLogDateTo(''); }}
+                    className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-400 hover:text-white text-xs font-semibold"
+                  >
+                    Clear
+                  </button>
+                )}
+
+                <button
+                  onClick={fetchFailureLogs}
+                  className="p-1.5 rounded-xl bg-slate-800 text-slate-300 hover:text-white"
+                  title="Refresh"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingLogs ? 'animate-spin text-amber-400' : ''}`} />
+                </button>
+              </div>
+            </div>
+
+            {failureLogs.length === 0 ? (
+              <div className="py-12 text-center text-slate-500 text-sm">
+                {logSearch || logCategory || logDateFrom || logDateTo
+                  ? 'No failures match these filters.'
+                  : 'No failures recorded yet.'}
+              </div>
+            ) : (
+              <div className="overflow-x-auto max-h-[600px]">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-slate-950 text-slate-400 uppercase font-semibold border-b border-white/10 sticky top-0">
+                    <tr>
+                      <th className="p-3">Email</th>
+                      <th className="p-3">Date &amp; Time</th>
+                      <th className="p-3">Category</th>
+                      <th className="p-3">What Went Wrong</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {failureLogs.map((log) => (
+                      <tr key={log.id} className="hover:bg-slate-950/40">
+                        <td className="p-3 font-medium text-white whitespace-nowrap">{log.email || '—'}</td>
+                        <td className="p-3 text-slate-400 whitespace-nowrap">{new Date(log.created_at).toLocaleString()}</td>
+                        <td className="p-3">
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-red-500/15 text-red-400 border border-red-500/25 whitespace-nowrap">
+                            {failureCategories[log.category] || log.category}
+                          </span>
+                        </td>
+                        <td className="p-3 text-slate-300">{log.description}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {failureLogTotal > failureLogs.length && (
+                  <p className="text-[11px] text-slate-500 text-center pt-3">
+                    Showing the most recent {failureLogs.length} of {failureLogTotal} — narrow the search or date range to see more specific results.
+                  </p>
+                )}
               </div>
             )}
           </div>

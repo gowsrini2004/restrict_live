@@ -4,17 +4,28 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.utils import timezone
 
-from .models import AuthorizedUser, SystemConfig
+from django.db.models import Q
+
+from .models import AuthorizedUser, SystemConfig, FailureLog
 from .serializers import (
     LoginSerializer,
     BulkUserImportSerializer,
     AuthorizedUserSerializer,
     CreateUserSerializer,
-    SystemConfigSerializer
+    SystemConfigSerializer,
+    FailureLogSerializer
 )
 from .utils import generate_jwt_token, decode_jwt_token
 from .auth_helpers import enforce_active_session, require_admin, require_super_admin
 from services.common.redis_client import SessionManager
+from services.common.failure_log import (
+    log_failure,
+    CATEGORY_LOGIN_INVALID_CREDENTIALS,
+    CATEGORY_LOGIN_NOT_AUTHORIZED,
+    CATEGORY_LOGIN_ACCOUNT_DISABLED,
+    CATEGORY_LOGIN_VALIDATION_ERROR,
+    CATEGORY_LABELS,
+)
 
 SUPER_ADMIN_EMAIL = "events@chennaimath.org"
 DEFAULT_PASSCODE = "IRK2026"
@@ -36,7 +47,12 @@ def login_view(request):
     Single-device enforcement: Invalidates any existing active session for this user.
     """
     serializer = LoginSerializer(data=request.data)
-    serializer.is_valid(raise_exception=True)
+    try:
+        serializer.is_valid(raise_exception=True)
+    except Exception:
+        attempted_email = str(request.data.get('email', ''))[:255]
+        log_failure(attempted_email, CATEGORY_LOGIN_VALIDATION_ERROR, f"Login rejected — invalid input: {serializer.errors}")
+        raise
 
     email = serializer.validated_data['email']
     passcode = serializer.validated_data['passcode']
@@ -53,6 +69,7 @@ def login_view(request):
         # Passcode every regular Administrator also knows, since that shared
         # code shouldn't be able to unlock the single super-admin account.
         if passcode not in [super_admin_passcode, DEFAULT_SUPER_ADMIN_PASSCODE]:
+            log_failure(email, CATEGORY_LOGIN_INVALID_CREDENTIALS, "Wrong Super Admin passcode entered.")
             return Response({
                 "success": False,
                 "error": {
@@ -70,6 +87,7 @@ def login_view(request):
         if is_admin or passcode == admin_passcode:
             is_admin = True
             if passcode != admin_passcode:
+                log_failure(email, CATEGORY_LOGIN_INVALID_CREDENTIALS, "Wrong Administrator passcode entered.")
                 return Response({
                     "success": False,
                     "error": {
@@ -80,6 +98,7 @@ def login_view(request):
                 }, status=status.HTTP_401_UNAUTHORIZED)
         else:
             if passcode != attendee_passcode:
+                log_failure(email, CATEGORY_LOGIN_INVALID_CREDENTIALS, "Wrong event (attendee) passcode entered.")
                 return Response({
                     "success": False,
                     "error": {
@@ -101,6 +120,7 @@ def login_view(request):
                 is_active=True
             )
         else:
+            log_failure(email, CATEGORY_LOGIN_NOT_AUTHORIZED, "Login attempted with an email not on the event roster.")
             return Response({
                 "success": False,
                 "error": {
@@ -111,6 +131,7 @@ def login_view(request):
             }, status=status.HTTP_403_FORBIDDEN)
 
     if not user.is_active:
+        log_failure(email, CATEGORY_LOGIN_ACCOUNT_DISABLED, "Login attempted on an account an admin has disabled.")
         return Response({
             "success": False,
             "error": {
@@ -428,6 +449,44 @@ def list_users_view(request):
         "data": {
             "users": serializer.data,
             "total_count": AuthorizedUser.objects.count()
+        }
+    })
+
+@api_view(['GET'])
+@require_admin
+def list_failure_logs(request):
+    """
+    Admin "Logs" tab — every recorded failure (failed logins, failed Q&A
+    submits/upvotes) across both services, newest first. Supports:
+    - `search`: free-text match against email OR description
+    - `category`: exact match against one of CATEGORY_LABELS' keys
+    - `date_from` / `date_to`: inclusive calendar-date bounds (YYYY-MM-DD)
+    """
+    qs = FailureLog.objects.all()
+
+    search = request.query_params.get('search', '').strip()
+    category = request.query_params.get('category', '').strip()
+    date_from = request.query_params.get('date_from', '').strip()
+    date_to = request.query_params.get('date_to', '').strip()
+
+    if search:
+        qs = qs.filter(Q(email__icontains=search) | Q(description__icontains=search))
+    if category:
+        qs = qs.filter(category=category)
+    if date_from:
+        qs = qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(created_at__date__lte=date_to)
+
+    total_count = qs.count()
+    logs = qs[:500]
+
+    return Response({
+        "success": True,
+        "data": {
+            "logs": FailureLogSerializer(logs, many=True).data,
+            "total_count": total_count,
+            "categories": CATEGORY_LABELS,
         }
     })
 

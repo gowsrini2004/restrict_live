@@ -13,4 +13,5 @@ urlpatterns = [
     path('admin/users/bulk-import/', views.bulk_import_users_view, name='admin_bulk_import'),
     path('admin/users/', views.list_users_view, name='admin_list_users'),
     path('admin/config/passcode/', views.system_config_view, name='admin_config_passcode'),
+    path('admin/failure-logs/', views.list_failure_logs, name='admin_failure_logs'),
 ]
