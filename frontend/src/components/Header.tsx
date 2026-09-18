@@ -11,7 +11,7 @@ export const Header: React.FC<HeaderProps> = ({ currentView = 'live', onNavigate
   const { user, logout, isAdmin } = useAuth();
 
   return (
-    <header className="sticky top-0 z-50 bg-slate-950/95 backdrop-blur-xl border-b border-white/10 px-3 sm:px-6 h-14 flex items-center justify-between shadow-xl">
+    <header className="sticky top-0 z-50 bg-slate-950 border-b border-white/10 px-3 sm:px-6 h-14 flex items-center justify-between shadow-xl">
       {/* Brand */}
       <div className="flex items-center gap-2.5 min-w-0">
         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center shrink-0 shadow-lg shadow-amber-500/20">

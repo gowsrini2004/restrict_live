@@ -51,14 +51,14 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className={`pointer-events-auto p-4 rounded-2xl border shadow-2xl backdrop-blur-xl flex items-start justify-between gap-3 animate-fadeIn transform transition-all ${
+            className={`pointer-events-auto p-4 rounded-2xl border shadow-2xl flex items-start justify-between gap-3 animate-fadeIn transform transition-all ${
               toast.type === 'success'
-                ? 'bg-slate-900/95 border-emerald-500/30 text-emerald-400'
+                ? 'bg-slate-900 border-emerald-500/30 text-emerald-400'
                 : toast.type === 'error'
-                ? 'bg-slate-900/95 border-red-500/30 text-red-400'
+                ? 'bg-slate-900 border-red-500/30 text-red-400'
                 : toast.type === 'warning'
-                ? 'bg-slate-900/95 border-amber-500/30 text-amber-400'
-                : 'bg-slate-900/95 border-blue-500/30 text-blue-400'
+                ? 'bg-slate-900 border-amber-500/30 text-amber-400'
+                : 'bg-slate-900 border-blue-500/30 text-blue-400'
             }`}
           >
             <div className="flex items-start gap-3">

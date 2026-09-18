@@ -1049,7 +1049,7 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
       </button>
 
       {showSpeedMenu && !isAtLiveEdge && (
-        <div className="absolute right-0 bottom-12 w-28 sm:w-36 max-w-[60vw] bg-slate-900/95 border border-white/15 rounded-xl sm:rounded-2xl p-1.5 sm:p-2 shadow-2xl backdrop-blur-xl z-50 space-y-1 animate-fadeIn max-h-[70vh] overflow-y-auto">
+        <div className="absolute right-0 bottom-12 w-28 sm:w-36 max-w-[60vw] bg-slate-900 border border-white/15 rounded-xl sm:rounded-2xl p-1.5 sm:p-2 shadow-2xl z-50 space-y-1 animate-fadeIn max-h-[70vh] overflow-y-auto">
           <div className="px-2 sm:px-2.5 py-1 sm:py-1.5 text-[9px] sm:text-[10px] font-extrabold text-slate-400 uppercase tracking-wider border-b border-white/10">
             Speed
           </div>
@@ -1110,7 +1110,7 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
         </button>
 
         {showQualityMenu && (
-          <div className="absolute right-0 bottom-12 w-52 sm:w-64 max-w-[78vw] bg-slate-900/95 border border-white/15 rounded-xl sm:rounded-2xl p-1.5 sm:p-2 shadow-2xl backdrop-blur-xl z-50 space-y-1 animate-fadeIn max-h-[70vh] overflow-y-auto">
+          <div className="absolute right-0 bottom-12 w-52 sm:w-64 max-w-[78vw] bg-slate-900 border border-white/15 rounded-xl sm:rounded-2xl p-1.5 sm:p-2 shadow-2xl z-50 space-y-1 animate-fadeIn max-h-[70vh] overflow-y-auto">
             <div className="px-2 sm:px-2.5 py-1 sm:py-1.5 border-b border-white/10 space-y-1 sm:space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-[9px] sm:text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Quality</span>
@@ -1182,7 +1182,7 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
                 status update firing while fullscreen controls are hidden
                 (inactivity fade) is still actually seen. */}
             {qualityToast && (
-              <div className="absolute top-2 sm:top-3 left-1/2 -translate-x-1/2 z-40 max-w-[85vw] sm:max-w-sm bg-slate-900/95 border border-amber-500/40 text-amber-400 font-extrabold text-[10px] sm:text-xs px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-xl sm:rounded-full shadow-2xl backdrop-blur-xl flex items-center gap-1 sm:gap-1.5 animate-fadeIn pointer-events-none">
+              <div className="absolute top-2 sm:top-3 left-1/2 -translate-x-1/2 z-40 max-w-[85vw] sm:max-w-sm bg-slate-900 border border-amber-500/40 text-amber-400 font-extrabold text-[10px] sm:text-xs px-2.5 sm:px-3.5 py-1 sm:py-1.5 rounded-xl sm:rounded-full shadow-2xl flex items-center gap-1 sm:gap-1.5 animate-fadeIn pointer-events-none">
                 <Sparkles className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-400 shrink-0" />
                 <span className="leading-snug">{qualityToast}</span>
               </div>
@@ -1276,13 +1276,19 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
           </div>
         ) : (
           /* ── Offline banner ─────────────────────────────────────────── */
-          <div className="absolute inset-0 z-20 flex items-center justify-center p-4 bg-slate-950">
+          <div className="relative w-full h-full min-h-[240px] z-20 flex items-center justify-center p-4 bg-slate-950">
             <img
               src={offlineImageUrl}
               alt="Offline"
               className="absolute inset-0 w-full h-full object-cover opacity-20 blur-sm"
             />
-            <div className="relative z-10 max-w-xs sm:max-w-sm w-full bg-slate-900/95 border border-white/10 rounded-2xl p-5 shadow-2xl backdrop-blur-xl text-center space-y-3">
+            {/* Solid background, no backdrop-filter — a `backdrop-blur-*`
+                card stacked on top of an already-blurred image failed to
+                paint at all in some browser/GPU environments (backdrop-
+                filter support is far less consistent than plain filter),
+                which looked like nothing but the blurred image was ever
+                there. A plain opaque card can't have that failure mode. */}
+            <div className="relative z-10 max-w-xs sm:max-w-sm w-full bg-slate-900 border border-white/10 rounded-2xl p-5 shadow-2xl text-center space-y-3">
               <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mx-auto">
                 <Clock className="w-6 h-6 animate-pulse" />
               </div>

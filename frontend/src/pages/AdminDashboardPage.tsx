@@ -483,7 +483,7 @@ export const AdminDashboardPage: React.FC = () => {
         {/* Header Title Bar — title/login on its own line, quick-action
             cards always on the line below (never crammed side-by-side,
             which was overflowing the container at wide/desktop widths). */}
-        <div className="bg-slate-900/90 border border-white/10 rounded-2xl p-6 shadow-2xl backdrop-blur-xl flex flex-col gap-4">
+        <div className="bg-slate-900 border border-white/10 rounded-2xl p-6 shadow-2xl flex flex-col gap-4">
           <div>
             <h2 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2.5">
               <span>Admin Control Center</span>

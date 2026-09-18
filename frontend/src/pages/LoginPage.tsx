@@ -48,7 +48,12 @@ export const LoginPage: React.FC = () => {
       <div className="absolute top-1/4 -left-24 w-72 h-72 bg-amber-600/10 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-1/4 -right-24 w-72 h-72 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
 
-      <div className="w-full max-w-sm bg-slate-900/90 border border-white/10 rounded-2xl p-5 shadow-2xl backdrop-blur-2xl relative z-10 space-y-5">
+      {/* Solid background, no backdrop-filter — see ProtectedPlayer's
+          offline-banner fix for why a backdrop-blur card sitting over
+          other blurred elements can fail to paint entirely in some
+          browser/GPU environments, which for THIS card would mean the
+          whole login form silently disappearing behind the ambient orbs. */}
+      <div className="w-full max-w-sm bg-slate-900 border border-white/10 rounded-2xl p-5 shadow-2xl relative z-10 space-y-5">
         {/* Brand */}
         <div className="text-center space-y-2">
           <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center mx-auto shadow-xl shadow-amber-500/20">
