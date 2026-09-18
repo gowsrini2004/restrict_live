@@ -31,6 +31,11 @@ def enforce_active_session(view_func):
 
         try:
             payload = decode_jwt_token(token)
+            # A refresh token is only ever valid at POST /auth/refresh/ — reject
+            # it here so a leaked/long-lived refresh token can't be used
+            # directly against protected endpoints in place of an access token.
+            if payload.get('type') != 'access':
+                raise ValueError("This is not a valid access token. Please log in again.")
             user_id = payload.get('user_id')
             session_id = payload.get('session_id')
 

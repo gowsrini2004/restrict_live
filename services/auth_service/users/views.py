@@ -12,13 +12,17 @@ from .serializers import (
     CreateUserSerializer,
     SystemConfigSerializer
 )
-from .utils import generate_jwt_token
+from .utils import generate_jwt_token, decode_jwt_token
 from .auth_helpers import enforce_active_session, require_admin, require_super_admin
 from services.common.redis_client import SessionManager
 
 SUPER_ADMIN_EMAIL = "events@chennaimath.org"
 DEFAULT_PASSCODE = "IRK2026"
-DEFAULT_ADMIN_PASSCODE = "ADMIN2026"
+DEFAULT_ADMIN_PASSCODE = "183663"
+# Distinct from the Admin Common Passcode above — only events@chennaimath.org
+# (the one hardcoded Super Admin account) logs in with this one, so it isn't
+# the same shared credential every ordinary Administrator also knows.
+DEFAULT_SUPER_ADMIN_PASSCODE = "Mother108*"
 
 def get_system_passcode(key='COMMON_PASSCODE', default=DEFAULT_PASSCODE):
     config = SystemConfig.objects.filter(key=key).first()
@@ -39,12 +43,16 @@ def login_view(request):
 
     attendee_passcode = get_system_passcode('COMMON_PASSCODE', DEFAULT_PASSCODE)
     admin_passcode = get_system_passcode('ADMIN_PASSCODE', DEFAULT_ADMIN_PASSCODE)
+    super_admin_passcode = get_system_passcode('SUPER_ADMIN_PASSCODE', DEFAULT_SUPER_ADMIN_PASSCODE)
 
     is_super_admin = (email == SUPER_ADMIN_EMAIL)
     is_admin = is_super_admin
 
     if is_super_admin:
-        if passcode not in [admin_passcode, DEFAULT_ADMIN_PASSCODE]:
+        # Super Admin has its OWN passcode — separate from the Admin Common
+        # Passcode every regular Administrator also knows, since that shared
+        # code shouldn't be able to unlock the single super-admin account.
+        if passcode not in [super_admin_passcode, DEFAULT_SUPER_ADMIN_PASSCODE]:
             return Response({
                 "success": False,
                 "error": {
@@ -118,15 +126,95 @@ def login_view(request):
         user.is_admin = True
     user.save(update_fields=['last_login_at', 'is_super_admin', 'is_admin'])
 
-    token, session_id = generate_jwt_token(user.id, user.email, user.is_admin, user.is_super_admin)
+    token, refresh_token, session_id = generate_jwt_token(user.id, user.email, user.is_admin, user.is_super_admin)
     SessionManager.set_active_session(str(user.id), user.email, session_id)
 
     return Response({
         "success": True,
         "data": {
             "token": token,
+            "refresh_token": refresh_token,
             "user": AuthorizedUserSerializer(user).data,
             "session_id": session_id
+        }
+    })
+
+@api_view(['POST'])
+def refresh_token_view(request):
+    """
+    Exchanges a still-valid REFRESH token for a fresh ACCESS token (and a
+    rotated refresh token), without requiring the event passcode again.
+    Intentionally NOT behind @enforce_active_session — that decorator only
+    accepts access tokens, and the whole point here is renewing one using a
+    token that's specifically NOT an access token.
+    """
+    refresh_token = request.data.get('refresh_token')
+    if not refresh_token:
+        return Response({
+            "success": False,
+            "error": {
+                "code": "REFRESH_TOKEN_REQUIRED",
+                "message": "A refresh_token is required.",
+                "details": {}
+            }
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        payload = decode_jwt_token(refresh_token)
+    except ValueError as e:
+        return Response({
+            "success": False,
+            "error": {"code": "INVALID_TOKEN", "message": str(e), "details": {}}
+        }, status=status.HTTP_401_UNAUTHORIZED)
+
+    if payload.get('type') != 'refresh':
+        return Response({
+            "success": False,
+            "error": {"code": "INVALID_TOKEN", "message": "This is not a valid refresh token.", "details": {}}
+        }, status=status.HTTP_401_UNAUTHORIZED)
+
+    user_id = payload.get('user_id')
+    session_id = payload.get('session_id')
+
+    session_status = SessionManager.check_session_status(user_id, session_id)
+    if session_status == 'evicted':
+        return Response({
+            "success": False,
+            "error": {
+                "code": "SESSION_EVICTED",
+                "message": "Your session has been revoked because your account was logged in from another device.",
+                "details": {}
+            }
+        }, status=status.HTTP_401_UNAUTHORIZED)
+    if session_status == 'not_found':
+        # Redis/cache entry expired (e.g. server restart) but the refresh
+        # token itself is still cryptographically valid — re-register the
+        # session rather than forcing a full re-login over a technicality.
+        SessionManager.set_active_session(str(user_id), payload.get('email', ''), session_id)
+
+    # Refuse to renew a session for an account that's been disabled or
+    # deleted since the refresh token was issued.
+    user = AuthorizedUser.objects.filter(id=user_id).first()
+    if not user or not user.is_active:
+        return Response({
+            "success": False,
+            "error": {
+                "code": "USER_DISABLED",
+                "message": "Your user account is no longer active.",
+                "details": {}
+            }
+        }, status=status.HTTP_403_FORBIDDEN)
+
+    new_access_token, new_refresh_token, _ = generate_jwt_token(
+        user_id, payload.get('email', ''), payload.get('is_admin', False), payload.get('is_super_admin', False),
+        session_id=session_id
+    )
+
+    return Response({
+        "success": True,
+        "data": {
+            "token": new_access_token,
+            "refresh_token": new_refresh_token,
         }
     })
 
@@ -344,30 +432,28 @@ def list_users_view(request):
     })
 
 @api_view(['GET', 'POST'])
-@require_admin
+@require_super_admin
 def system_config_view(request):
     """
-    View or update passcodes.
-    Super Admin can update both COMMON_PASSCODE and ADMIN_PASSCODE.
-    Admins can only update COMMON_PASSCODE.
+    View or update every system passcode (attendee, admin, and super admin).
+    Super Admin only — regular Administrators have no access to this
+    endpoint at all (enforced by @require_super_admin, not a per-field
+    check), since these passcodes gate access to the whole event.
     """
-    claims = request.user_claims
-    is_super = claims.get('is_super_admin', False)
-
     if request.method == 'GET':
-        attendee_passcode = get_system_passcode('COMMON_PASSCODE', DEFAULT_PASSCODE)
-        admin_passcode = get_system_passcode('ADMIN_PASSCODE', DEFAULT_ADMIN_PASSCODE)
         return Response({
             "success": True,
             "data": {
-                "common_passcode": attendee_passcode,
-                "admin_passcode": admin_passcode if is_super else "••••••••",
-                "is_super_admin": is_super
+                "common_passcode": get_system_passcode('COMMON_PASSCODE', DEFAULT_PASSCODE),
+                "admin_passcode": get_system_passcode('ADMIN_PASSCODE', DEFAULT_ADMIN_PASSCODE),
+                "super_admin_passcode": get_system_passcode('SUPER_ADMIN_PASSCODE', DEFAULT_SUPER_ADMIN_PASSCODE),
+                "is_super_admin": True
             }
         })
     else:
         new_attendee_passcode = request.data.get('common_passcode', '').strip()
         new_admin_passcode = request.data.get('admin_passcode', '').strip()
+        new_super_admin_passcode = request.data.get('super_admin_passcode', '').strip()
 
         if new_attendee_passcode:
             config, _ = SystemConfig.objects.get_or_create(key='COMMON_PASSCODE')
@@ -375,17 +461,13 @@ def system_config_view(request):
             config.save()
 
         if new_admin_passcode:
-            if not is_super:
-                return Response({
-                    "success": False,
-                    "error": {
-                        "code": "PERMISSION_DENIED",
-                        "message": "Only the Super Administrator (events@chennaimath.org) can change the Admin Common Passcode.",
-                        "details": {}
-                    }
-                }, status=status.HTTP_403_FORBIDDEN)
             config, _ = SystemConfig.objects.get_or_create(key='ADMIN_PASSCODE')
             config.value = new_admin_passcode
+            config.save()
+
+        if new_super_admin_passcode:
+            config, _ = SystemConfig.objects.get_or_create(key='SUPER_ADMIN_PASSCODE')
+            config.value = new_super_admin_passcode
             config.save()
 
         return Response({

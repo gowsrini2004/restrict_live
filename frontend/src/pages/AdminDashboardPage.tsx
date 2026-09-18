@@ -96,9 +96,11 @@ export const AdminDashboardPage: React.FC = () => {
   // Delete Modal state
   const [deleteModalUser, setDeleteModalUser] = useState<{ id: string; email: string } | null>(null);
 
-  // Event Passcode state
+  // Event Passcode state — Super Admin only (backend now rejects this
+  // entire endpoint for regular Admins, not just the admin_passcode field).
   const [attendeePasscode, setAttendeePasscode] = useState<string>('IRK2026');
-  const [adminPasscode, setAdminPasscode] = useState<string>('ADMIN2026');
+  const [adminPasscode, setAdminPasscode] = useState<string>('183663');
+  const [superAdminPasscode, setSuperAdminPasscode] = useState<string>('Mother108*');
 
   // Q&A Moderation list
   const [adminQuestions, setAdminQuestions] = useState<Question[]>([]);
@@ -148,13 +150,16 @@ export const AdminDashboardPage: React.FC = () => {
     }
   };
 
-  // Fetch Passcodes
+  // Fetch Passcodes — Super Admin only; regular Admins can't reach this
+  // endpoint at all now, so don't even bother calling it for them.
   const fetchPasscode = async () => {
+    if (!isSuperAdmin) return;
     try {
       const res = await apiClient.get('/admin/config/passcode/');
       if (res.data?.success && res.data.data) {
         setAttendeePasscode(res.data.data.common_passcode || 'IRK2026');
         if (res.data.data.admin_passcode) setAdminPasscode(res.data.data.admin_passcode);
+        if (res.data.data.super_admin_passcode) setSuperAdminPasscode(res.data.data.super_admin_passcode);
       }
     } catch (err) {
       console.error("Failed to fetch passcode:", err);
@@ -396,7 +401,8 @@ export const AdminDashboardPage: React.FC = () => {
     try {
       const res = await apiClient.post('/admin/config/passcode/', {
         common_passcode: attendeePasscode,
-        admin_passcode: isSuperAdmin ? adminPasscode : undefined,
+        admin_passcode: adminPasscode,
+        super_admin_passcode: superAdminPasscode,
       });
       if (res.data?.success) {
         showSuccess("Passcodes Updated", "System login passcodes updated successfully.");
@@ -895,7 +901,7 @@ export const AdminDashboardPage: React.FC = () => {
 
         {/* TAB 3: Stream Manager & Passcode */}
         {activeTab === 'stream' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fadeIn">
+          <div className={`grid grid-cols-1 ${isSuperAdmin ? 'md:grid-cols-2' : ''} gap-6 animate-fadeIn`}>
             {/* Stream Settings Form */}
             <div className="bg-slate-900/90 border border-white/10 rounded-2xl p-6 shadow-2xl space-y-4">
               <h3 className="text-white font-bold text-base flex items-center gap-2">
@@ -967,52 +973,68 @@ export const AdminDashboardPage: React.FC = () => {
               </form>
             </div>
 
-            {/* Event Passcode Manager (Attendee Passcode & Admin Passcode) */}
-            <div className="bg-slate-900/90 border border-white/10 rounded-2xl p-6 shadow-2xl space-y-4">
-              <h3 className="text-white font-bold text-base flex items-center gap-2">
-                <KeyRound className="w-5 h-5 text-amber-400" /> System Passcodes Settings
-              </h3>
+            {/* Event Passcode Manager — Super Admin only. Regular Admins
+                don't get this card at all (not even read-only/disabled
+                fields), since the backend now rejects the whole endpoint
+                for them, not just individual fields. */}
+            {isSuperAdmin && (
+              <div className="bg-slate-900/90 border border-white/10 rounded-2xl p-6 shadow-2xl space-y-4">
+                <h3 className="text-white font-bold text-base flex items-center gap-2">
+                  <KeyRound className="w-5 h-5 text-amber-400" /> System Passcodes Settings
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40 font-bold uppercase ml-auto">
+                    Super Admin Only
+                  </span>
+                </h3>
 
-              <form onSubmit={handlePasscodeUpdate} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Attendee Common Passcode</label>
-                  <input
-                    type="text"
-                    value={attendeePasscode}
-                    onChange={(e) => setAttendeePasscode(e.target.value)}
-                    className="w-full p-3 bg-slate-950/80 border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500 font-mono tracking-widest font-bold"
-                  />
-                  <p className="text-[11px] text-slate-400 mt-1">Passcode used by all attendees to log in.</p>
-                </div>
+                <form onSubmit={handlePasscodeUpdate} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">Attendee Common Passcode</label>
+                    <input
+                      type="text"
+                      value={attendeePasscode}
+                      onChange={(e) => setAttendeePasscode(e.target.value)}
+                      className="w-full p-3 bg-slate-950/80 border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500 font-mono tracking-widest font-bold"
+                    />
+                    <p className="text-[11px] text-slate-400 mt-1">Passcode used by all attendees to log in.</p>
+                  </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center justify-between">
-                    <span>Admin Common Passcode</span>
-                    {!isSuperAdmin && <span className="text-amber-400 text-[10px] font-bold">Super Admin Only</span>}
-                  </label>
-                  <input
-                    type="password"
-                    value={adminPasscode}
-                    onChange={(e) => setAdminPasscode(e.target.value)}
-                    disabled={!isSuperAdmin}
-                    placeholder={!isSuperAdmin ? "••••••••" : "Enter admin passcode"}
-                    className="w-full p-3 bg-slate-950/80 border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500 font-mono tracking-widest font-bold disabled:opacity-50"
-                  />
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    {isSuperAdmin
-                      ? "Common passcode used by administrators to log in."
-                      : "Only the Super Administrator (events@chennaimath.org) can update the Admin Passcode."}
-                  </p>
-                </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">Admin Common Passcode</label>
+                    <input
+                      type="password"
+                      value={adminPasscode}
+                      onChange={(e) => setAdminPasscode(e.target.value)}
+                      placeholder="Enter admin passcode"
+                      className="w-full p-3 bg-slate-950/80 border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500 font-mono tracking-widest font-bold"
+                    />
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Shared passcode used by every regular Administrator to log in.
+                    </p>
+                  </div>
 
-                <button
-                  type="submit"
-                  className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm border border-white/10 transition-all"
-                >
-                  Update Passcodes
-                </button>
-              </form>
-            </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">Super Admin Passcode</label>
+                    <input
+                      type="password"
+                      value={superAdminPasscode}
+                      onChange={(e) => setSuperAdminPasscode(e.target.value)}
+                      placeholder="Enter super admin passcode"
+                      className="w-full p-3 bg-slate-950/80 border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:border-amber-500 font-mono tracking-widest font-bold"
+                    />
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Only used by events@chennaimath.org — kept separate from the Admin Common Passcode above so regular Administrators can't log in as Super Admin with it.
+                    </p>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm border border-white/10 transition-all"
+                  >
+                    Update Passcodes
+                  </button>
+                </form>
+              </div>
+            )}
           </div>
         )}
 

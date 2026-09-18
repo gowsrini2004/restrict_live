@@ -10,7 +10,8 @@ from users.models import AuthorizedUser, SystemConfig
 AuthorizedUser.objects.get_or_create(email='events@chennaimath.org', defaults={'is_admin': True, 'is_super_admin': True, 'is_active': True})
 AuthorizedUser.objects.get_or_create(email='admin@chennaimath.org', defaults={'is_admin': True, 'is_super_admin': False, 'is_active': True})
 AuthorizedUser.objects.get_or_create(email='attendee@example.com', defaults={'is_admin': False, 'is_super_admin': False, 'is_active': True})
-SystemConfig.objects.get_or_create(key='ADMIN_PASSCODE', defaults={'value': 'ADMIN2026'})
+SystemConfig.objects.get_or_create(key='ADMIN_PASSCODE', defaults={'value': '183663'})
+SystemConfig.objects.get_or_create(key='SUPER_ADMIN_PASSCODE', defaults={'value': 'Mother108*'})
 SystemConfig.objects.get_or_create(key='COMMON_PASSCODE', defaults={'value': 'IRK2026'})
 "
 

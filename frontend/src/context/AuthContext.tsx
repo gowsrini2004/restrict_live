@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { apiClient, registerSessionEvictedListener } from '../services/apiClient';
+import { apiClient, registerSessionEvictedListener, registerAuthExpiredListener } from '../services/apiClient';
 
 export interface User {
   id: string;
@@ -18,6 +18,7 @@ interface AuthContextType {
   isAdmin: boolean;
   isSuperAdmin: boolean;
   isSessionEvicted: boolean;
+  isSessionExpired: boolean;
   login: (email: string, passcode: string) => Promise<User>;
   logout: () => Promise<void>;
   dismissSessionEvictedModal: () => void;
@@ -31,20 +32,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const savedUser = localStorage.getItem('auth_user');
     return savedUser ? JSON.parse(savedUser) : null;
   });
-  const [isSessionEvicted, setIsSessionEvicted] = useState<boolean>(false);
+  // 'evicted' = logged in from another device (someone else has the account
+  // now). 'expired' = the access token expired AND the silent refresh-token
+  // exchange also failed, so there's genuinely nothing left to renew.
+  // Both end the session the same way, just with different modal wording.
+  const [sessionEndReason, setSessionEndReason] = useState<'evicted' | 'expired' | null>(null);
 
   useEffect(() => {
-    registerSessionEvictedListener(() => {
-      handleEviction();
-    });
+    registerSessionEvictedListener(() => endSession('evicted'));
+    registerAuthExpiredListener(() => endSession('expired'));
   }, []);
 
-  const handleEviction = () => {
+  const endSession = (reason: 'evicted' | 'expired') => {
     localStorage.removeItem('auth_token');
+    localStorage.removeItem('refresh_token');
     localStorage.removeItem('auth_user');
     setToken(null);
     setUser(null);
-    setIsSessionEvicted(true);
+    setSessionEndReason(reason);
   };
 
   useEffect(() => {
@@ -64,11 +69,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [token]);
 
   const login = async (email: string, passcode: string): Promise<User> => {
-    setIsSessionEvicted(false);
+    setSessionEndReason(null);
     const response = await apiClient.post('/auth/login/', { email, passcode });
-    const { token: newToken, user: newUser } = response.data.data;
+    const { token: newToken, refresh_token: newRefreshToken, user: newUser } = response.data.data;
 
     localStorage.setItem('auth_token', newToken);
+    localStorage.setItem('refresh_token', newRefreshToken);
     localStorage.setItem('auth_user', JSON.stringify(newUser));
 
     setToken(newToken);
@@ -85,6 +91,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Ignore errors on logout
     } finally {
       localStorage.removeItem('auth_token');
+      localStorage.removeItem('refresh_token');
       localStorage.removeItem('auth_user');
       setToken(null);
       setUser(null);
@@ -92,7 +99,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const dismissSessionEvictedModal = () => {
-    setIsSessionEvicted(false);
+    setSessionEndReason(null);
   };
 
   return (
@@ -103,7 +110,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoggedIn: !!token && !!user,
         isAdmin: !!user?.is_admin || !!user?.is_super_admin,
         isSuperAdmin: !!user?.is_super_admin,
-        isSessionEvicted,
+        isSessionEvicted: sessionEndReason === 'evicted',
+        isSessionExpired: sessionEndReason === 'expired',
         login,
         logout,
         dismissSessionEvictedModal,

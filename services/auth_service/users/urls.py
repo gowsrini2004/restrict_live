@@ -3,6 +3,7 @@ from . import views
 
 urlpatterns = [
     path('auth/login/', views.login_view, name='auth_login'),
+    path('auth/refresh/', views.refresh_token_view, name='auth_refresh'),
     path('auth/heartbeat/', views.heartbeat_view, name='auth_heartbeat'),
     path('auth/logout/', views.logout_view, name='auth_logout'),
     path('admin/metrics/live-viewers/', views.live_metrics_view, name='admin_live_metrics'),
