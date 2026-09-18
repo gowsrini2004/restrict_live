@@ -445,8 +445,12 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
     }
 
     const matches = actualQuality === selectedQuality;
-    const desiredLabel = QUALITIES.find((q) => q.value === selectedQuality)?.badge || selectedQuality.toUpperCase();
-    const actualLabel = QUALITIES.find((q) => q.value === actualQuality)?.badge || actualQuality.toUpperCase();
+    // Only ever describe quality using our 3 badges — never YouTube's raw
+    // internal quality string (e.g. 'large', 'medium', 'hd720'). Anything
+    // YouTube reports below our floor tier still gets called "FHD", since
+    // that's the lowest term we expose to viewers.
+    const desiredLabel = QUALITIES.find((q) => q.value === selectedQuality)?.badge || 'FHD';
+    const actualLabel = QUALITIES.find((q) => q.value === actualQuality)?.badge || 'FHD';
     const desiredRank = QUALITY_RANK[selectedQuality];
     const actualRank = QUALITY_RANK[actualQuality];
     const isOverDelivering = typeof desiredRank === 'number' && typeof actualRank === 'number' && actualRank > desiredRank;
@@ -509,7 +513,7 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
             const tierIndex = QUALITY_TIERS_DESC.indexOf(selectedQuality);
             const nextLowerTier = tierIndex >= 0 ? QUALITY_TIERS_DESC[tierIndex + 1] : undefined;
             if (nextLowerTier) {
-              const nextLabel = QUALITIES.find((q) => q.value === nextLowerTier)?.badge || nextLowerTier.toUpperCase();
+              const nextLabel = QUALITIES.find((q) => q.value === nextLowerTier)?.badge || 'FHD';
               setQualityToast(`Couldn't reach ${desiredLabel} after ${QUALITY_MAX_RELOAD_ATTEMPTS} reloads — switching to ${nextLabel}`);
               setTimeout(() => setQualityToast(null), 3000);
               desiredQualityRef.current = nextLowerTier;
@@ -975,9 +979,13 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
    * (from onPlaybackQualityChange) — not just what you asked for — so you
    * can always tell whether your preference actually took effect. */
   const renderQualityDropdown = () => {
+    // Only ever describe quality using our 3 badges (FHD/2K/4K) — never
+    // YouTube's raw internal quality string, and never a bare "AUTO"/"LIVE"
+    // placeholder either. Before the first real reading arrives, show what
+    // we're targeting (the spinner already signals "still working").
+    const desiredLabel = QUALITIES.find((q) => q.value === selectedQuality)?.badge || 'FHD';
     const actualObj = QUALITIES.find((q) => q.value === actualQuality);
-    const actualLabel = actualObj ? actualObj.badge : (actualQuality === 'auto' ? 'AUTO' : actualQuality.toUpperCase());
-    const desiredLabel = QUALITIES.find((q) => q.value === selectedQuality)?.badge || 'AUTO';
+    const actualLabel = actualObj ? actualObj.badge : (actualQuality === 'auto' ? desiredLabel : 'FHD');
 
     const desiredRank = QUALITY_RANK[selectedQuality];
     const actualRank = QUALITY_RANK[actualQuality];
