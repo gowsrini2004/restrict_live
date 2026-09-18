@@ -139,20 +139,6 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
   // Fullscreen auto-hide: controls fade out after inactivity while playing,
   // and reappear (in place — nothing is unmounted) on any mouse/touch activity.
   const [controlsVisible, setControlsVisible] = useState(true);
-  // True while the browser's focus is actually INSIDE the YouTube iframe —
-  // i.e. the viewer just clicked the gear or something in its menu. We can't
-  // see what's happening inside a cross-origin iframe directly, but a click
-  // into it does move the parent document's focus there, which we CAN
-  // detect (window 'blur' + document.activeElement === the iframe). While
-  // true, the click-catcher below opens up the WHOLE video instead of just
-  // the two small windows, so a click anywhere — including outside the
-  // menu, which YouTube's own UI treats as "dismiss" — actually reaches the
-  // iframe instead of being swallowed by our overlay (which is what made
-  // the menu feel "stuck": your dismiss-click was hitting our div, not
-  // YouTube's). The moment focus leaves the iframe again (you click
-  // anything in our own page, e.g. the control bar), this snaps back to
-  // false and normal protection resumes.
-  const [nativeFocusActive, setNativeFocusActive] = useState(false);
   // Refs mirroring latest state so the postMessage listener (registered once)
   // always reads current values instead of a stale closure.
   const isMutedRef = useRef(isMuted);
@@ -210,38 +196,6 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
     return () => {
       document.removeEventListener('fullscreenchange', onChange);
       document.removeEventListener('webkitfullscreenchange', onChange);
-    };
-  }, []);
-
-  /* Detect focus moving into/out of the YouTube iframe — see
-   * nativeFocusActive's declaration above for why this is the only signal
-   * we actually have for "the viewer is interacting with YouTube's native
-   * menu" from a cross-origin iframe. `blur` fires on window the instant
-   * focus leaves the top-level document; checking activeElement right
-   * after tells us WHERE it went. `focusin` bubbles (unlike plain `focus`),
-   * so it reliably fires the moment focus lands on anything in OUR page
-   * again (a button, the body, anywhere) — that's the "menu's done, close
-   * the window back down" signal. */
-  useEffect(() => {
-    const handleWindowBlur = () => {
-      // activeElement hasn't updated yet at the exact moment 'blur' fires
-      // in some browsers — defer one tick.
-      setTimeout(() => {
-        if (document.activeElement === iframeElRef.current) {
-          setNativeFocusActive(true);
-        }
-      }, 0);
-    };
-    const handleFocusIn = (e: FocusEvent) => {
-      if (e.target !== iframeElRef.current) {
-        setNativeFocusActive(false);
-      }
-    };
-    window.addEventListener('blur', handleWindowBlur);
-    document.addEventListener('focusin', handleFocusIn);
-    return () => {
-      window.removeEventListener('blur', handleWindowBlur);
-      document.removeEventListener('focusin', handleFocusIn);
     };
   }, []);
 
@@ -679,11 +633,8 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
                 — see the native-controls hot zone + hint badge below. The
                 gradient itself stops short of that zone so the gear isn't
                 visually darkened. Fades out with the rest of the chrome on
-                fullscreen inactivity, and stops blocking clicks while
-                nativeFocusActive so a dismiss-click landing here (top-left)
-                still reaches the iframe instead of getting swallowed. */}
-              <div className={`absolute top-0 left-0 h-16 bg-gradient-to-b from-black/85 to-transparent z-20 flex items-center gap-3 px-3 sm:px-4 transition-opacity duration-300 ${nativeFocusActive ? 'pointer-events-none' : 'pointer-events-auto'
-                } ${controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                fullscreen inactivity. */}
+              <div className={`absolute top-0 left-0 h-16 bg-gradient-to-b from-black/85 to-transparent z-20 flex items-center gap-3 px-3 sm:px-4 pointer-events-auto transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
                 }`}
                 style={{ right: NATIVE_GEAR_ZONE_WIDTH_PX + NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX }}
               >
@@ -701,8 +652,7 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
                 style={{ right: NATIVE_GEAR_ZONE_WIDTH_PX + NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX + 8 }}
               >
                 <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-black/50 px-2.5 py-1 rounded-full border border-amber-500/25 backdrop-blur whitespace-nowrap">
-                  <Settings2 className="w-3 h-3" />
-                  {nativeFocusActive ? 'Click outside menu to close' : 'Click ⚙ for Quality/Speed'}
+                  <Settings2 className="w-3 h-3" /> Click ⚙ for Quality/Speed
                 </span>
               </div>
 
@@ -724,46 +674,40 @@ export const ProtectedPlayer: React.FC<ProtectedPlayerProps> = ({
                 pause fires instead of our custom togglePlay, which is a
                 harmless equivalent, not a gap in protection.
 
-                While nativeFocusActive is true (the viewer's focus is
-                actually inside the iframe — see that state's declaration),
-                these rectangles are skipped entirely instead of just the
-                two windows. Reason: once the menu is open, a "click
-                outside to dismiss" is exactly the kind of click that lands
-                OUTSIDE both small windows — if we kept blocking there, that
-                dismiss-click would hit our overlay instead of YouTube's,
-                and the menu would feel stuck open forever (exactly the bug
-                reported). Opening the whole video only while focus is
-                confirmed to be in the iframe keeps this scoped to genuine
-                menu interaction, not a standing exposure. */}
-              {!nativeFocusActive && (
-                <>
-                  <div
-                    className="absolute top-0 left-0 z-10 cursor-pointer"
-                    style={{ height: NATIVE_GEAR_ZONE_HEIGHT_PX, right: NATIVE_GEAR_ZONE_WIDTH_PX + NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX }}
-                    onClick={togglePlay}
-                  />
-                  <div
-                    className="absolute top-0 right-0 z-10 cursor-pointer"
-                    style={{ height: NATIVE_GEAR_ZONE_HEIGHT_PX, width: NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX }}
-                    onClick={togglePlay}
-                  />
-                  <div
-                    className="absolute left-0 right-0 z-10 cursor-pointer"
-                    style={{ top: NATIVE_GEAR_ZONE_HEIGHT_PX, height: `calc(${nativeMenuZoneTopPercent}% - ${NATIVE_GEAR_ZONE_HEIGHT_PX}px)` }}
-                    onClick={togglePlay}
-                  />
-                  <div
-                    className="absolute bottom-0 left-0 z-10 cursor-pointer"
-                    style={{ top: `${nativeMenuZoneTopPercent}%`, width: `${nativeMenuZoneSidePercent}%` }}
-                    onClick={togglePlay}
-                  />
-                  <div
-                    className="absolute bottom-0 right-0 z-10 cursor-pointer"
-                    style={{ top: `${nativeMenuZoneTopPercent}%`, width: `${nativeMenuZoneSidePercent}%` }}
-                    onClick={togglePlay}
-                  />
-                </>
-              )}
+                Known tradeoff, kept deliberately: a "click outside the menu
+                to dismiss it" (YouTube's own native gesture) lands OUTSIDE
+                both windows, so it hits this overlay instead of reaching
+                YouTube — the menu has to be closed by clicking the gear
+                again or picking an option, not by clicking elsewhere in the
+                video. An automatic fix existed (temporarily opening the
+                whole video while the browser's focus was inside the
+                iframe) but was rejected as too much exposure — this is the
+                deliberately narrower tradeoff instead. */}
+              <div
+                className="absolute top-0 left-0 z-10 cursor-pointer"
+                style={{ height: NATIVE_GEAR_ZONE_HEIGHT_PX, right: NATIVE_GEAR_ZONE_WIDTH_PX + NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX }}
+                onClick={togglePlay}
+              />
+              <div
+                className="absolute top-0 right-0 z-10 cursor-pointer"
+                style={{ height: NATIVE_GEAR_ZONE_HEIGHT_PX, width: NATIVE_GEAR_ZONE_RIGHT_OFFSET_PX }}
+                onClick={togglePlay}
+              />
+              <div
+                className="absolute left-0 right-0 z-10 cursor-pointer"
+                style={{ top: NATIVE_GEAR_ZONE_HEIGHT_PX, height: `calc(${nativeMenuZoneTopPercent}% - ${NATIVE_GEAR_ZONE_HEIGHT_PX}px)` }}
+                onClick={togglePlay}
+              />
+              <div
+                className="absolute bottom-0 left-0 z-10 cursor-pointer"
+                style={{ top: `${nativeMenuZoneTopPercent}%`, width: `${nativeMenuZoneSidePercent}%` }}
+                onClick={togglePlay}
+              />
+              <div
+                className="absolute bottom-0 right-0 z-10 cursor-pointer"
+                style={{ top: `${nativeMenuZoneTopPercent}%`, width: `${nativeMenuZoneSidePercent}%` }}
+                onClick={togglePlay}
+              />
 
               {/* Fullscreen bottom overlay — timeline, play/pause, volume &
                 exit-fullscreen; fades out with the rest of the chrome on
